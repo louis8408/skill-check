@@ -1,0 +1,104 @@
+# skill-check
+
+Know when a skill you're using is out of date.
+
+Agent skills (`SKILL.md` folders for Claude Code and other agents) change often, but once a skill is copied into your skills folder nothing tracks it. Your agent keeps running the old copy, and a stale skill doesn't fail; it just quietly does worse work.
+
+skill-check is a Claude Code plugin that warns, at the moment a skill is used, when a newer version exists:
+
+```
+[skill-check] The skill "speckit-plan" is out of date: installed 0.12.0, latest v0.13.1.
+Run `specify self upgrade`, then `specify integration upgrade claude` in this project.
+```
+
+Claude sees the warning too, mentions it to you, and carries on. Nothing is blocked.
+
+## How it knows
+
+1. **The metadata convention.** Skills that declare `metadata.version` and `metadata.source` in their `SKILL.md` frontmatter are compared with the upstream copy. See [CONVENTION.md](CONVENTION.md); it works with the current Agent Skills spec, no changes needed.
+2. **Spec Kit.** `speckit-*` project skills are compared with the latest [github/spec-kit](https://github.com/github/spec-kit) release, using the version Spec Kit records in `.specify/`.
+
+More ecosystems are added as adapters (one class each) without touching the rest.
+
+## Install
+
+Requires Node.js 20 or later on your `PATH`.
+
+```
+/plugin marketplace add louis8408/skill-check
+/plugin install skill-check@skill-check
+```
+
+Or from a terminal:
+
+```
+claude plugin marketplace add louis8408/skill-check
+claude plugin install skill-check@skill-check
+```
+
+## Try it
+
+Install an old copy of the example skill, then use it:
+
+```bash
+mkdir -p ~/.claude/skills/hello-skill
+curl -sL https://raw.githubusercontent.com/louis8408/skill-check/main/examples/hello-skill/SKILL.md \
+  | sed 's/version: 1.1.0/version: 1.0.0/' > ~/.claude/skills/hello-skill/SKILL.md
+```
+
+Start Claude Code and say "hello skill". You should see the out-of-date warning.
+
+Check everything at once from a terminal (`npx` works once published; until then use `node dist/cli.js check` from a clone):
+
+```
+skill-check check --cwd path/to/project
+```
+
+```
+hello-skill (personal)   outdated  1.0.0 -> 1.1.0  Update it from https://github.com/louis8408/skill-check/tree/main/examples/hello-skill.
+speckit-plan (project)   current   0.13.1
+my-old-skill (personal)  unknown   no version information (add metadata.version and metadata.source)
+```
+
+## How it works
+
+| Hook | What it does |
+| --- | --- |
+| `SessionStart` (async) | Checks every visible skill in the background and caches the results. |
+| `PreToolUse` on `Skill` | When Claude invokes a skill, warns if the cached status (or a quick check, max 2 s) says it's out of date. |
+| `UserPromptSubmit` | Same, for skills you type as `/skill-name`. |
+
+- Each skill is warned about once per session.
+- Statuses are cached for 24 hours.
+- Any failure (offline, rate-limited, odd input) means silence, never a broken session.
+- Looks at personal skills (`~/.claude/skills`) and project skills (`.claude/skills` in the working directory or any parent). Plugin skills are skipped; Claude Code updates plugins itself.
+
+### Settings (environment variables)
+
+| Variable | Default | |
+| --- | --- | --- |
+| `SKILL_CHECK_TTL_HOURS` | `24` | How long a check result is trusted. |
+| `SKILL_CHECK_INLINE_TIMEOUT_MS` | `2000` | Max wait when a skill is used and nothing is cached. |
+| `GITHUB_TOKEN` / `GH_TOKEN` | | Raises GitHub's rate limit. Only sent to `api.github.com` and `raw.githubusercontent.com`. |
+| `SKILL_CHECK_DEBUG` | | Set to `1` to log hook input to `debug.log` in the plugin data folder. |
+
+## Development
+
+```
+npm ci
+npm run verify      # typecheck, lint (zero warnings), build, tests with coverage
+```
+
+The code follows Clean Architecture: `domain` (entities and ports, no dependencies) ← `application` (use cases) ← `infrastructure` (file system, HTTP, adapters) ← `presentation` (CLI, hooks, composition root). The layer rules are enforced by tests in `tests/architecture` using dependency-cruiser.
+
+Tests are split into `tests/unit`, `tests/integration` (real file system, a local HTTP server standing in for GitHub, and the bundled CLI run as a real process) and `tests/architecture`.
+
+`dist/cli.js` is committed so the plugin works without an install step; CI fails if it is out of date.
+
+## The bigger goal
+
+skill-check is a reference implementation. The real aim is for skill version and source to become a normal part of the Agent Skills spec, and for agents to check them natively. If that happens, this plugin has done its job.
+
+## License
+
+MIT

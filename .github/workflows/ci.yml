@@ -29,7 +29,9 @@ jobs:
   sonarcloud:
     needs: verify
     runs-on: ubuntu-latest
-    if: ${{ github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository }}
+    # Off until SonarCloud is set up: set the repository variable SONAR_ENABLED=true,
+    # add the SONAR_TOKEN secret, and fill in sonar-project.properties.
+    if: ${{ vars.SONAR_ENABLED == 'true' && (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository) }}
     steps:
       - uses: actions/checkout@v4
         with:

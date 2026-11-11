@@ -1,9 +1,10 @@
 import js from '@eslint/js';
+import { defineConfig } from 'eslint/config';
 import tseslint from 'typescript-eslint';
 import sonarjs from 'eslint-plugin-sonarjs';
 
-export default tseslint.config(
-  { ignores: ['dist/**', 'coverage/**', 'node_modules/**'] },
+export default defineConfig(
+  { ignores: ['dist/**', 'dist-test/**', 'coverage/**', 'node_modules/**'] },
   js.configs.recommended,
   ...tseslint.configs.strictTypeChecked,
   sonarjs.configs.recommended,
@@ -22,6 +23,7 @@ export default tseslint.config(
   {
     files: ['**/*.js', '**/*.cjs', '**/*.mjs'],
     ...tseslint.configs.disableTypeChecked,
+    languageOptions: { globals: { module: 'writable', require: 'readonly', process: 'readonly', console: 'readonly' } },
   },
   {
     files: ['tests/**/*.ts'],
