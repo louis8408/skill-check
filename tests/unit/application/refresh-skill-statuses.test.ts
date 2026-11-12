@@ -24,6 +24,7 @@ describe('RefreshSkillStatuses', () => {
       checkedAt: 42,
       warnedSessions: [],
     });
+    expect(store.writes).toBe(1);
   });
 
   it('keeps the sessions already warned when it refreshes a status', async () => {

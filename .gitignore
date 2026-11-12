@@ -3,3 +3,4 @@ coverage/
 *.log
 .scannerwork/
 dist-test/
+sonar.txt

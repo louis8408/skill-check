@@ -41,6 +41,12 @@ export class MemoryStore implements StatusStore {
     this.entries.set(key, value);
     return Promise.resolve();
   }
+  writes = 0;
+  putAll(values: ReadonlyMap<string, StoredStatus>): Promise<void> {
+    this.writes++;
+    for (const [key, value] of values) this.entries.set(key, value);
+    return Promise.resolve();
+  }
 }
 
 export class FixedClock implements Clock {

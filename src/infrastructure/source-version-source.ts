@@ -102,15 +102,14 @@ export class SourceVersionSource implements SkillVersionSource {
     return parseRevisions(await this.http.getText(url, remaining(deadline), { accept: 'application/vnd.github+json' }));
   }
 
-  /** Newest first, a few at a time, stopping at the first match. */
+  /** Newest first, a few at a time, stopping at the first match (so it is sequential on purpose). */
   private async findRevision(source: string, revisions: readonly Revision[], localText: string, deadline: number): Promise<Revision | null> {
-    for (let start = 0; start < revisions.length; start += PARALLEL_FETCHES) {
-      const batch = revisions.slice(start, start + PARALLEL_FETCHES);
-      const texts = await Promise.all(batch.map((r) => this.http.getText(rawSkillUrl(source, this.rawBase, r.sha), remaining(deadline))));
-      const index = texts.findIndex((text) => sameSkill(localText, text));
-      if (index >= 0) return batch[index] ?? null;
-    }
-    return null;
+    const batch = revisions.slice(0, PARALLEL_FETCHES);
+    if (batch.length === 0) return null;
+    const texts = await Promise.all(batch.map((r) => this.http.getText(rawSkillUrl(source, this.rawBase, r.sha), remaining(deadline))));
+    const index = texts.findIndex((text) => sameSkill(localText, text));
+    if (index >= 0) return batch[index] ?? null;
+    return this.findRevision(source, revisions.slice(PARALLEL_FETCHES), localText, deadline);
   }
 }
 

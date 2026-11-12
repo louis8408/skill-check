@@ -22,22 +22,19 @@ export class FileSystemSkillCatalog implements SkillCatalog {
 
   async find(name: string, cwd: string): Promise<InstalledSkill | null> {
     if (!VALID_NAME.test(name)) return null;
-    for (const root of this.roots(cwd)) {
-      const skill = await this.read(root, name);
-      if (skill) return skill;
-    }
-    return null;
+    // Read every candidate at once; roots() is in precedence order, so the first hit wins.
+    const candidates = await Promise.all(this.roots(cwd).map((root) => this.read(root, name)));
+    return candidates.find((skill) => skill !== null) ?? null;
   }
 
   async list(cwd: string): Promise<InstalledSkill[]> {
-    const found: InstalledSkill[] = [];
-    for (const root of this.roots(cwd)) {
-      for (const name of await this.childFolders(root.path)) {
-        const skill = await this.read(root, name);
-        if (skill) found.push(skill);
-      }
-    }
-    return found;
+    const perRoot = await Promise.all(
+      this.roots(cwd).map(async (root) => {
+        const names = await this.childFolders(root.path);
+        return Promise.all(names.map((name) => this.read(root, name)));
+      }),
+    );
+    return perRoot.flat().filter((skill): skill is InstalledSkill => skill !== null);
   }
 
   private roots(cwd: string): SkillsRoot[] {

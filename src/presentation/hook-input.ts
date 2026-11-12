@@ -8,7 +8,7 @@ export interface HookInput {
   readonly skillName: string | null;
 }
 
-const EVENTS: readonly string[] = ['PreToolUse', 'UserPromptSubmit', 'SessionStart'];
+const EVENTS: ReadonlySet<string> = new Set(['PreToolUse', 'UserPromptSubmit', 'SessionStart']);
 const SLASH_COMMAND = /^\s*\/([\w:.-]+)/;
 const SKILL_TOOL = 'Skill';
 
@@ -51,7 +51,7 @@ export function readHookInput(stdin: string): HookInput | null {
   const event = str(data.hook_event_name);
   const sessionId = str(data.session_id);
   const cwd = str(data.cwd);
-  if (event === null || !EVENTS.includes(event) || sessionId === null || cwd === null) return null;
+  if (event === null || !EVENTS.has(event) || sessionId === null || cwd === null) return null;
 
   let skillName: string | null = null;
   if (event === 'PreToolUse') skillName = skillFromToolCall(data);

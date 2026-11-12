@@ -19,7 +19,7 @@ export class FetchHttpClient implements HttpClient {
 
   async getText(url: string, timeoutMs: number, headers: Readonly<Record<string, string>> = {}): Promise<string> {
     const requestHeaders: Record<string, string> = { 'user-agent': this.userAgent, ...headers };
-    if (this.auth && this.auth.hosts.includes(new URL(url).hostname)) {
+    if (this.auth?.hosts.includes(new URL(url).hostname)) {
       requestHeaders.authorization = `Bearer ${this.auth.token}`;
     }
 

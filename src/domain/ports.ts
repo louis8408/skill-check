@@ -23,6 +23,8 @@ export interface SkillVersionSource {
 export interface StatusStore {
   get(key: string): Promise<StoredStatus | null>;
   put(key: string, value: StoredStatus): Promise<void>;
+  /** Stores several entries at once (one write), leaving other entries as they are. */
+  putAll(values: ReadonlyMap<string, StoredStatus>): Promise<void>;
 }
 
 export interface Clock {

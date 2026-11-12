@@ -17,6 +17,9 @@ export default defineConfig(
     },
     rules: {
       'sonarjs/cognitive-complexity': ['error', 15],
+      // Mirror SonarCloud rules that eslint-plugin-sonarjs doesn't include, so they fail locally first.
+      'no-await-in-loop': 'error', // S9382
+      '@typescript-eslint/prefer-optional-chain': 'error', // S6582
       '@typescript-eslint/restrict-template-expressions': ['error', { allowNumber: true }],
     },
   },

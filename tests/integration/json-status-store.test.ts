@@ -25,6 +25,15 @@ describe('JsonFileStatusStore (real file system)', () => {
     expect(JSON.parse(await readFile(path, 'utf8'))).toMatchObject({ schema: 1 });
   });
 
+  it('stores many entries in one write and keeps the ones it was not given', async () => {
+    const path = join(root, 'status.json');
+    await new JsonFileStatusStore(path).put('kept', entry);
+    const other = { ...entry, checkedAt: 9 };
+    await new JsonFileStatusStore(path).putAll(new Map([['a', entry], ['b', other]]));
+    const store = new JsonFileStatusStore(path);
+    expect([await store.get('kept'), await store.get('a'), await store.get('b')]).toEqual([entry, entry, other]);
+  });
+
   it('treats a corrupt file as empty instead of failing the hook', async () => {
     const path = join(root, 'status.json');
     await writeFile(path, '{not json');

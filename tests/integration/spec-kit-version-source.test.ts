@@ -24,7 +24,7 @@ describe('version sources against a local HTTP server', () => {
     async function specKitProject(files: Record<string, string>): Promise<InstalledSkill> {
       const project = join(root, 'proj');
       await mkdir(join(project, '.specify'), { recursive: true });
-      for (const [name, content] of Object.entries(files)) await writeFile(join(project, '.specify', name), content);
+      await Promise.all(Object.entries(files).map(([name, content]) => writeFile(join(project, '.specify', name), content)));
       const directory = await writeSkill(join(project, '.claude', 'skills'), 'speckit-plan');
       return { name: 'speckit-plan', directory, scope: 'project', metadata: {} };
     }

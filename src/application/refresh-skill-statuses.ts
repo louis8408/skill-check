@@ -27,15 +27,15 @@ export class RefreshSkillStatuses {
     const reports = await Promise.all(
       skills.map(async (skill) => ({ skill, status: await this.checker.check(skill, this.options.timeoutMs) })),
     );
-    // Store sequentially: implementations may write a single shared file.
-    for (const { skill, status } of reports) {
-      const previous = await this.store.get(skill.directory);
-      await this.store.put(skill.directory, {
-        status,
-        checkedAt: this.clock.now(),
-        warnedSessions: previous?.warnedSessions ?? [],
-      });
-    }
+    const checkedAt = this.clock.now();
+    const entries = await Promise.all(
+      reports.map(async ({ skill, status }) => {
+        const previous = await this.store.get(skill.directory);
+        return [skill.directory, { status, checkedAt, warnedSessions: previous?.warnedSessions ?? [] }] as const;
+      }),
+    );
+    // One write: implementations may keep every status in a single shared file.
+    await this.store.putAll(new Map(entries));
     return reports;
   }
 }

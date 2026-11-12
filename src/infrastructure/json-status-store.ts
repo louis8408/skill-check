@@ -18,9 +18,13 @@ export class JsonFileStatusStore implements StatusStore {
     return (await this.load()).entries[key] ?? null;
   }
 
-  async put(key: string, value: StoredStatus): Promise<void> {
+  put(key: string, value: StoredStatus): Promise<void> {
+    return this.putAll(new Map([[key, value]]));
+  }
+
+  async putAll(values: ReadonlyMap<string, StoredStatus>): Promise<void> {
     const data = await this.load();
-    data.entries[key] = value;
+    for (const [key, value] of values) data.entries[key] = value;
     await mkdir(dirname(this.path), { recursive: true });
     // Write then rename so a concurrent reader never sees a half-written file.
     const temp = `${this.path}.${process.pid}.${Date.now()}.tmp`;

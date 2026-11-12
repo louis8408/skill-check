@@ -4,10 +4,13 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
 
+# Actions are pinned to full commit SHAs (Dependabot keeps them current), and
+# `npm ci --ignore-scripts` stops dependency lifecycle scripts from running.
 jobs:
   verify:
     strategy:
@@ -15,12 +18,12 @@ jobs:
         os: [ubuntu-latest, windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
           cache: npm
-      - run: npm ci
+      - run: npm ci --ignore-scripts
       - run: npm run verify
       - name: dist is up to date
         if: matrix.os == 'ubuntu-latest'
@@ -29,19 +32,18 @@ jobs:
   sonarcloud:
     needs: verify
     runs-on: ubuntu-latest
-    # Off until SonarCloud is set up: set the repository variable SONAR_ENABLED=true,
-    # add the SONAR_TOKEN secret, and fill in sonar-project.properties.
+    # Runs once SonarCloud is set up: repository variable SONAR_ENABLED=true and secret SONAR_TOKEN.
     if: ${{ vars.SONAR_ENABLED == 'true' && (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository) }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
           cache: npm
-      - run: npm ci
+      - run: npm ci --ignore-scripts
       - run: npm run coverage
-      - uses: SonarSource/sonarqube-scan-action@v5
+      - uses: SonarSource/sonarqube-scan-action@e805d875275f728fac1885b413934be6d7c63f65 # v8.4.1
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}

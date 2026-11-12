@@ -7550,14 +7550,14 @@ var RefreshSkillStatuses = class {
     const reports = await Promise.all(
       skills.map(async (skill) => ({ skill, status: await this.checker.check(skill, this.options.timeoutMs) }))
     );
-    for (const { skill, status } of reports) {
-      const previous = await this.store.get(skill.directory);
-      await this.store.put(skill.directory, {
-        status,
-        checkedAt: this.clock.now(),
-        warnedSessions: previous?.warnedSessions ?? []
-      });
-    }
+    const checkedAt = this.clock.now();
+    const entries = await Promise.all(
+      reports.map(async ({ skill, status }) => {
+        const previous = await this.store.get(skill.directory);
+        return [skill.directory, { status, checkedAt, warnedSessions: previous?.warnedSessions ?? [] }];
+      })
+    );
+    await this.store.putAll(new Map(entries));
     return reports;
   }
 };
@@ -7622,21 +7622,17 @@ var FileSystemSkillCatalog = class {
   configDir;
   async find(name, cwd) {
     if (!VALID_NAME.test(name)) return null;
-    for (const root of this.roots(cwd)) {
-      const skill = await this.read(root, name);
-      if (skill) return skill;
-    }
-    return null;
+    const candidates = await Promise.all(this.roots(cwd).map((root) => this.read(root, name)));
+    return candidates.find((skill) => skill !== null) ?? null;
   }
   async list(cwd) {
-    const found = [];
-    for (const root of this.roots(cwd)) {
-      for (const name of await this.childFolders(root.path)) {
-        const skill = await this.read(root, name);
-        if (skill) found.push(skill);
-      }
-    }
-    return found;
+    const perRoot = await Promise.all(
+      this.roots(cwd).map(async (root) => {
+        const names = await this.childFolders(root.path);
+        return Promise.all(names.map((name) => this.read(root, name)));
+      })
+    );
+    return perRoot.flat().filter((skill) => skill !== null);
   }
   roots(cwd) {
     const personal = resolve(this.configDir, "skills");
@@ -7681,7 +7677,7 @@ var FetchHttpClient = class {
   auth;
   async getText(url, timeoutMs, headers = {}) {
     const requestHeaders = { "user-agent": this.userAgent, ...headers };
-    if (this.auth && this.auth.hosts.includes(new URL(url).hostname)) {
+    if (this.auth?.hosts.includes(new URL(url).hostname)) {
       requestHeaders.authorization = `Bearer ${this.auth.token}`;
     }
     let response;
@@ -7708,9 +7704,12 @@ var JsonFileStatusStore = class {
   async get(key) {
     return (await this.load()).entries[key] ?? null;
   }
-  async put(key, value) {
+  put(key, value) {
+    return this.putAll(/* @__PURE__ */ new Map([[key, value]]));
+  }
+  async putAll(values) {
     const data = await this.load();
-    data.entries[key] = value;
+    for (const [key, value] of values) data.entries[key] = value;
     await mkdir(dirname2(this.path), { recursive: true });
     const temp = `${this.path}.${process.pid}.${Date.now()}.tmp`;
     await writeFile(temp, JSON.stringify(data, null, 2));
@@ -7919,15 +7918,14 @@ var SourceVersionSource = class {
     const url = `${trimTrailingSlashes(this.apiBase)}/repos/${github.owner}/${github.repo}/commits?path=${encodeURIComponent(github.path)}&per_page=${MAX_REVISIONS}${ref}`;
     return parseRevisions(await this.http.getText(url, remaining(deadline), { accept: "application/vnd.github+json" }));
   }
-  /** Newest first, a few at a time, stopping at the first match. */
+  /** Newest first, a few at a time, stopping at the first match (so it is sequential on purpose). */
   async findRevision(source, revisions, localText, deadline) {
-    for (let start = 0; start < revisions.length; start += PARALLEL_FETCHES) {
-      const batch = revisions.slice(start, start + PARALLEL_FETCHES);
-      const texts = await Promise.all(batch.map((r) => this.http.getText(rawSkillUrl(source, this.rawBase, r.sha), remaining(deadline))));
-      const index = texts.findIndex((text2) => sameSkill(localText, text2));
-      if (index >= 0) return batch[index] ?? null;
-    }
-    return null;
+    const batch = revisions.slice(0, PARALLEL_FETCHES);
+    if (batch.length === 0) return null;
+    const texts = await Promise.all(batch.map((r) => this.http.getText(rawSkillUrl(source, this.rawBase, r.sha), remaining(deadline))));
+    const index = texts.findIndex((text2) => sameSkill(localText, text2));
+    if (index >= 0) return batch[index] ?? null;
+    return this.findRevision(source, revisions.slice(PARALLEL_FETCHES), localText, deadline);
   }
 };
 function remaining(deadline) {
@@ -8019,7 +8017,7 @@ function createApp(config, userAgent) {
 }
 
 // src/presentation/hook-input.ts
-var EVENTS = ["PreToolUse", "UserPromptSubmit", "SessionStart"];
+var EVENTS = /* @__PURE__ */ new Set(["PreToolUse", "UserPromptSubmit", "SessionStart"]);
 var SLASH_COMMAND = /^\s*\/([\w:.-]+)/;
 var SKILL_TOOL = "Skill";
 function isRecord2(value) {
@@ -8053,7 +8051,7 @@ function readHookInput(stdin) {
   const event = str(data.hook_event_name);
   const sessionId = str(data.session_id);
   const cwd = str(data.cwd);
-  if (event === null || !EVENTS.includes(event) || sessionId === null || cwd === null) return null;
+  if (event === null || !EVENTS.has(event) || sessionId === null || cwd === null) return null;
   let skillName = null;
   if (event === "PreToolUse") skillName = skillFromToolCall(data);
   else if (event === "UserPromptSubmit") skillName = skillFromPrompt(data);
