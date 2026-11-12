@@ -1,5 +1,9 @@
 # skill-check
 
+[![ci](https://github.com/louis8408/skill-check/actions/workflows/ci.yml/badge.svg)](https://github.com/louis8408/skill-check/actions/workflows/ci.yml)
+[![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=louis8408_skill-check&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=louis8408_skill-check)
+[![Coverage](https://sonarcloud.io/api/project_badges/measure?project=louis8408_skill-check&metric=coverage)](https://sonarcloud.io/summary/new_code?id=louis8408_skill-check)
+
 Know when a skill you're using is out of date.
 
 Agent skills (`SKILL.md` folders for Claude Code and other agents) change often, but once a skill is copied into your skills folder nothing tracks it. Your agent keeps running the old copy, and a stale skill doesn't fail; it just quietly does worse work.
