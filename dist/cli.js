@@ -7689,8 +7689,8 @@ var FetchHttpClient = class {
     try {
       response = await fetch(url, { headers: requestHeaders, signal: AbortSignal.timeout(timeoutMs), redirect: "follow" });
     } catch (error) {
-      if (error instanceof Error && error.name === "TimeoutError") throw new Error(`timed out after ${timeoutMs} ms`);
-      throw new Error(`request failed: ${describeError(error)}`);
+      if (error instanceof Error && error.name === "TimeoutError") throw new Error(`timed out after ${timeoutMs} ms`, { cause: error });
+      throw new Error(`request failed: ${describeError(error)}`, { cause: error });
     }
     if (!response.ok) throw new Error(`HTTP ${response.status} for ${url}`);
     return response.text();
