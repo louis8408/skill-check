@@ -7,6 +7,8 @@
     "skill-check": "dist/cli.js"
   },
   "files": [
+    "LICENSE",
+    "NOTICE",
     "dist",
     "CONVENTION.md"
   ],
@@ -32,7 +34,7 @@
     "version",
     "hooks"
   ],
-  "license": "MIT",
+  "license": "Apache-2.0",
   "dependencies": {
     "yaml": "2.9.1"
   },

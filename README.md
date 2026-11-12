@@ -112,4 +112,7 @@ skill-check is a reference implementation. The real aim is for skill version and
 
 ## License
 
-MIT
+- **Code:** [Apache-2.0](LICENSE). Use it, change it and build on it, including commercially. Redistributions must keep the `LICENSE` and [`NOTICE`](NOTICE) files and mark changed files, and the license grants no rights to the skill-check name.
+- **The convention ([CONVENTION.md](CONVENTION.md)):** [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). Adopt it anywhere, including in specifications, with credit.
+
+Versions up to 0.2.1 were released under MIT.

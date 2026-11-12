@@ -79,3 +79,9 @@ The Agent Skills spec defines `metadata` as a free-form string map for exactly t
 ## Reference implementation
 
 [skill-check](https://github.com/louis8408/skill-check) implements the tool rules above as a Claude Code plugin.
+
+## License
+
+This convention is © 2026 Louis Esterhuizen and licensed under [Creative Commons Attribution 4.0 International (CC BY 4.0)](https://creativecommons.org/licenses/by/4.0/). You may adopt, copy, adapt and republish it, including in specifications and commercial products, as long as you credit "SKILL.md source/version convention by Louis Esterhuizen" and link to https://github.com/louis8408/skill-check/blob/main/CONVENTION.md.
+
+The skill-check code is licensed separately under Apache-2.0 (see `LICENSE` and `NOTICE`).
