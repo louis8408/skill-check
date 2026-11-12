@@ -13,7 +13,7 @@ describe('SkillStatusChecker', () => {
 
   it('is unknown when no source applies', async () => {
     const status = await new SkillStatusChecker([]).check(skill('x'), 1_000);
-    expect(status).toEqual({ kind: 'unknown', reason: 'no version information (add metadata.version and metadata.source)' });
+    expect(status).toEqual({ kind: 'unknown', reason: 'no version information (add metadata.source)' });
   });
 
   it('turns a failing source into an unknown status naming the source', async () => {

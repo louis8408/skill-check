@@ -18,6 +18,13 @@ export async function writeSkill(skillsDir: string, name: string, metadata: Reco
   return dir;
 }
 
+export async function writeSkillText(skillsDir: string, name: string, text: string): Promise<string> {
+  const dir = join(skillsDir, name);
+  await mkdir(dir, { recursive: true });
+  await writeFile(join(dir, 'SKILL.md'), text);
+  return dir;
+}
+
 export interface FakeResponse {
   status?: number;
   body: string;

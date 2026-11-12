@@ -8,7 +8,7 @@ export class SkillStatusChecker {
   async check(skill: InstalledSkill, timeoutMs: number): Promise<SkillStatus> {
     const source = this.sources.find((s) => s.appliesTo(skill));
     if (!source) {
-      return { kind: 'unknown', reason: 'no version information (add metadata.version and metadata.source)' };
+      return { kind: 'unknown', reason: 'no version information (add metadata.source)' };
     }
     try {
       return evaluateStatus(await source.resolve(skill, timeoutMs));

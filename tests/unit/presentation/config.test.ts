@@ -16,6 +16,7 @@ describe('loadConfig', () => {
       githubApi: 'https://api.github.com',
       githubRaw: 'https://raw.githubusercontent.com',
       githubToken: null,
+      skillsLockFile: join(HOME, '.agents', '.skill-lock.json'),
     });
   });
 
@@ -37,6 +38,10 @@ describe('loadConfig', () => {
     expect(config.ttlMs).toBe(2 * 3_600_000);
     expect(config.inlineTimeoutMs).toBe(500);
     expect(config.githubToken).toBe('tok');
+  });
+
+  it('finds the npx skills lock file under XDG_STATE_HOME when set', () => {
+    expect(loadConfig({ XDG_STATE_HOME: '/state' }, HOME).skillsLockFile).toBe(join('/state', 'skills', '.skill-lock.json'));
   });
 
   it('ignores invalid numbers', () => {

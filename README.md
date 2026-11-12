@@ -15,8 +15,9 @@ Claude sees the warning too, mentions it to you, and carries on. Nothing is bloc
 
 ## How it knows
 
-1. **The metadata convention.** Skills that declare `metadata.version` and `metadata.source` in their `SKILL.md` frontmatter are compared with the upstream copy. See [CONVENTION.md](CONVENTION.md); it works with the current Agent Skills spec, no changes needed.
+1. **`metadata.source` in SKILL.md.** The local copy is compared with the upstream one: by `metadata.version` when upstream's is higher, otherwise by content and, for GitHub sources, the file's commit history. So it notices updates even when the author never bumps the version. See [CONVENTION.md](CONVENTION.md); it works with the current Agent Skills spec, no changes needed.
 2. **Spec Kit.** `speckit-*` project skills are compared with the latest [github/spec-kit](https://github.com/github/spec-kit) release, using the version Spec Kit records in `.specify/`.
+3. **`npx skills`.** Personal skills installed with [`npx skills add`](https://github.com/vercel-labs/skills) are compared with the GitHub folder hash recorded in its lock file.
 
 More ecosystems are added as adapters (one class each) without touching the rest.
 
@@ -55,10 +56,13 @@ skill-check check --cwd path/to/project
 ```
 
 ```
-hello-skill (personal)   outdated  1.0.0 -> 1.1.0  Update it from https://github.com/louis8408/skill-check/tree/main/examples/hello-skill.
-speckit-plan (project)   current   0.13.1
-my-old-skill (personal)  unknown   no version information (add metadata.version and metadata.source)
+hello-skill (personal)           outdated  1.0.0 -> 1.1.0  Update it from https://github.com/louis8408/skill-check/tree/main/examples/hello-skill.
+react-best-practices (project)   outdated  1.0.0 (d65b69e, 2026-01-23) -> 1.0.0 (805687f, 2026-04-14)  Update it from https://github.com/vercel-labs/agent-skills/tree/main/skills/react-best-practices.
+speckit-plan (project)           current   0.13.1
+my-old-skill (personal)          unknown   npx-skills: no version information (add metadata.source, or install with npx skills)
 ```
+
+The second line is a real result: an old copy of a Vercel skill whose version was never bumped, matched to the exact commit it came from.
 
 ## How it works
 
@@ -79,7 +83,8 @@ my-old-skill (personal)  unknown   no version information (add metadata.version 
 | --- | --- | --- |
 | `SKILL_CHECK_TTL_HOURS` | `24` | How long a check result is trusted. |
 | `SKILL_CHECK_INLINE_TIMEOUT_MS` | `2000` | Max wait when a skill is used and nothing is cached. |
-| `GITHUB_TOKEN` / `GH_TOKEN` | | Raises GitHub's rate limit. Only sent to `api.github.com` and `raw.githubusercontent.com`. |
+| `XDG_STATE_HOME` | | Where `npx skills` keeps its lock file (`$XDG_STATE_HOME/skills/.skill-lock.json`, else `~/.agents/.skill-lock.json`). |
+| `GITHUB_TOKEN` / `GH_TOKEN` | | Raises GitHub's rate limit (60 API requests an hour without a token). Only sent to `api.github.com` and `raw.githubusercontent.com`. |
 | `SKILL_CHECK_DEBUG` | | Set to `1` to log hook input to `debug.log` in the plugin data folder. |
 
 ## Development

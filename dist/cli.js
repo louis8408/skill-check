@@ -7394,8 +7394,13 @@ function loadConfig(env, home) {
     refreshTimeoutMs: positiveNumber(env.SKILL_CHECK_REFRESH_TIMEOUT_MS, 1e4),
     githubApi: nonEmpty(env.SKILL_CHECK_GITHUB_API) ?? "https://api.github.com",
     githubRaw: nonEmpty(env.SKILL_CHECK_GITHUB_RAW) ?? "https://raw.githubusercontent.com",
-    githubToken: nonEmpty(env.GITHUB_TOKEN) ?? nonEmpty(env.GH_TOKEN)
+    githubToken: nonEmpty(env.GITHUB_TOKEN) ?? nonEmpty(env.GH_TOKEN),
+    skillsLockFile: skillsLockFile(env, home)
   };
+}
+function skillsLockFile(env, home) {
+  const state = nonEmpty(env.XDG_STATE_HOME);
+  return state ? join(state, "skills", ".skill-lock.json") : join(home, ".agents", ".skill-lock.json");
 }
 
 // src/domain/version.ts
@@ -7469,6 +7474,10 @@ function compareVersions(a, b) {
 
 // src/domain/status.ts
 function evaluateStatus(info) {
+  if (info.order === "older") {
+    return { kind: "outdated", installed: info.installed, latest: info.latest, updateHint: info.updateHint };
+  }
+  if (info.order === "same") return { kind: "current", installed: info.installed, latest: info.latest };
   const installed = parseVersion(info.installed);
   const latest = parseVersion(info.latest);
   if (!installed || !latest) {
@@ -7562,7 +7571,7 @@ var SkillStatusChecker = class {
   async check(skill, timeoutMs) {
     const source = this.sources.find((s) => s.appliesTo(skill));
     if (!source) {
-      return { kind: "unknown", reason: "no version information (add metadata.version and metadata.source)" };
+      return { kind: "unknown", reason: "no version information (add metadata.source)" };
     }
     try {
       return evaluateStatus(await source.resolve(skill, timeoutMs));
@@ -7722,9 +7731,8 @@ var JsonFileStatusStore = class {
   }
 };
 
-// src/domain/skill.ts
-var METADATA_VERSION_KEY = "version";
-var METADATA_SOURCE_KEY = "source";
+// src/infrastructure/skills-lock-version-source.ts
+import { readFile as readFile3 } from "node:fs/promises";
 
 // src/infrastructure/text.ts
 function trimTrailingSlashes(value) {
@@ -7738,63 +7746,202 @@ function trimSlashes(value) {
   return trimTrailingSlashes(value.slice(start));
 }
 
+// src/infrastructure/skills-lock-version-source.ts
+var NOT_TRACKED = "no version information (add metadata.source, or install with npx skills)";
+function isLockEntry(value) {
+  const entry = value;
+  return typeof entry?.source === "string" && typeof entry.sourceType === "string" && typeof entry.skillFolderHash === "string";
+}
+function folderOf(skillPath) {
+  const path = skillPath.replaceAll("\\", "/");
+  const folder = path.toLowerCase().endsWith("skill.md") ? path.slice(0, -"skill.md".length) : path;
+  return folder.endsWith("/") ? folder.slice(0, -1) : folder;
+}
+var SkillsLockVersionSource = class {
+  constructor(http, apiBase, lockPath) {
+    this.http = http;
+    this.apiBase = apiBase;
+    this.lockPath = lockPath;
+  }
+  http;
+  apiBase;
+  lockPath;
+  id = "npx-skills";
+  appliesTo(skill) {
+    return skill.scope === "personal";
+  }
+  async resolve(skill, timeoutMs) {
+    const entry = await this.entry(skill.name);
+    if (entry.sourceType !== "github" || !entry.skillFolderHash) {
+      throw new Error(`installed by npx skills from a ${entry.sourceType} source, which it cannot check`);
+    }
+    const folder = folderOf(entry.skillPath ?? "");
+    const latest = await this.folderHash(entry, folder, timeoutMs);
+    const installedOn = entry.updatedAt ? ` (installed ${entry.updatedAt.slice(0, 10)})` : "";
+    return {
+      installed: `${entry.skillFolderHash.slice(0, 7)}${installedOn}`,
+      latest: latest.slice(0, 7),
+      updateHint: `Run \`npx skills update ${skill.name}\`.`,
+      order: latest === entry.skillFolderHash ? "same" : "older"
+    };
+  }
+  async entry(name) {
+    let skills = {};
+    try {
+      const data = JSON.parse(await readFile3(this.lockPath, "utf8"));
+      skills = data.skills ?? {};
+    } catch {
+    }
+    const entry = skills[name];
+    if (!isLockEntry(entry)) throw new Error(NOT_TRACKED);
+    return entry;
+  }
+  async folderHash(entry, folder, timeoutMs) {
+    const ref = encodeURIComponent(entry.ref ?? "HEAD");
+    const url = `${trimTrailingSlashes(this.apiBase)}/repos/${entry.source}/git/trees/${ref}?recursive=1`;
+    const tree = JSON.parse(await this.http.getText(url, timeoutMs, { accept: "application/vnd.github+json" }));
+    const sha = folder === "" ? tree.sha : tree.tree?.find((item) => item.type === "tree" && item.path === folder)?.sha;
+    if (!sha) throw new Error(`${folder} is no longer in ${entry.source}`);
+    return sha;
+  }
+};
+
+// src/infrastructure/source-version-source.ts
+import { readFile as readFile4 } from "node:fs/promises";
+import { join as join3 } from "node:path";
+
+// src/domain/skill.ts
+var METADATA_VERSION_KEY = "version";
+var METADATA_SOURCE_KEY = "source";
+
 // src/infrastructure/source-url.ts
 var SKILL_FILE2 = "SKILL.md";
-function githubRawUrl(path, rawBase) {
-  const [owner = "", repoWithSuffix = "", kind, ref, ...rest] = trimSlashes(path).split("/");
-  const repo = repoWithSuffix.replace(/\.git$/, "");
-  if (!owner || !repo) throw new Error(`unsupported source: https://github.com/${path}`);
+function parseUrl(source) {
+  try {
+    return new URL(source.trim());
+  } catch {
+    return null;
+  }
+}
+function parseGitHubSource(source) {
+  const url = parseUrl(source);
+  if (url?.hostname !== "github.com") return null;
+  const [owner = "", repoWithSuffix = "", kind, ref, ...rest] = trimSlashes(url.pathname).split("/");
+  const repo = repoWithSuffix.endsWith(".git") ? repoWithSuffix.slice(0, -4) : repoWithSuffix;
+  if (!owner || !repo) return null;
   if ((kind === "tree" || kind === "blob") && ref) {
     const inner = rest.join("/");
-    const file = kind === "blob" ? inner : [inner, SKILL_FILE2].filter(Boolean).join("/");
-    return `${rawBase}/${owner}/${repo}/${ref}/${file}`;
+    const path = kind === "blob" ? inner : [inner, SKILL_FILE2].filter(Boolean).join("/");
+    return { owner, repo, ref, path };
   }
-  return `${rawBase}/${owner}/${repo}/HEAD/${SKILL_FILE2}`;
+  return { owner, repo, ref: null, path: SKILL_FILE2 };
 }
-function rawSkillUrl(source, rawBase) {
-  let url;
-  try {
-    url = new URL(source.trim());
-  } catch {
-    throw new Error(`unsupported source: ${source}`);
+function rawSkillUrl(source, rawBase, revision) {
+  const url = parseUrl(source);
+  if (!url || url.protocol !== "https:" && url.protocol !== "http:") throw new Error(`unsupported source: ${source}`);
+  const github = parseGitHubSource(source);
+  if (url.hostname === "github.com") {
+    if (!github) throw new Error(`unsupported source: ${source}`);
+    const ref = revision ?? github.ref ?? "HEAD";
+    return `${trimTrailingSlashes(rawBase)}/${github.owner}/${github.repo}/${ref}/${github.path}`;
   }
-  if (url.protocol !== "https:" && url.protocol !== "http:") throw new Error(`unsupported source: ${source}`);
-  if (url.hostname === "github.com") return githubRawUrl(url.pathname, trimTrailingSlashes(rawBase));
   if (url.pathname.toLowerCase().endsWith(".md")) return url.toString();
   url.pathname = `${trimTrailingSlashes(url.pathname)}/${SKILL_FILE2}`;
   return url.toString();
 }
 
-// src/infrastructure/metadata-version-source.ts
-var MetadataVersionSource = class {
-  constructor(http, rawBase) {
+// src/infrastructure/source-version-source.ts
+var MAX_REVISIONS = 30;
+var PARALLEL_FETCHES = 5;
+var SOURCE_LINE = /^[ \t]+source:[^\n]*\n?/gm;
+function sameSkill(a, b) {
+  const normalize = (text2) => text2.replaceAll("\r\n", "\n").replace(SOURCE_LINE, "").trimEnd();
+  return normalize(a) === normalize(b);
+}
+function newerVersion(local, upstream) {
+  const l = local === void 0 ? null : parseVersion(local);
+  const u = upstream === void 0 ? null : parseVersion(upstream);
+  return l !== null && u !== null && compareVersions(u, l) > 0;
+}
+function label(version, revision) {
+  const id = `${revision.sha.slice(0, 7)}, ${revision.date.slice(0, 10)}`;
+  return version ? `${version} (${id})` : `${revision.sha.slice(0, 7)} (${revision.date.slice(0, 10)})`;
+}
+function parseRevisions(body) {
+  const data = JSON.parse(body);
+  if (!Array.isArray(data)) return [];
+  return data.flatMap((item) => {
+    const commit = item;
+    const date = commit.commit?.committer?.date;
+    return typeof commit.sha === "string" && typeof date === "string" ? [{ sha: commit.sha, date }] : [];
+  });
+}
+var SourceVersionSource = class {
+  constructor(http, rawBase, apiBase) {
     this.http = http;
     this.rawBase = rawBase;
+    this.apiBase = apiBase;
   }
   http;
   rawBase;
-  id = "metadata";
+  apiBase;
+  id = "source";
   appliesTo(skill) {
-    return Boolean(skill.metadata[METADATA_VERSION_KEY] && skill.metadata[METADATA_SOURCE_KEY]);
+    return Boolean(skill.metadata[METADATA_SOURCE_KEY]);
   }
   async resolve(skill, timeoutMs) {
-    const installed = skill.metadata[METADATA_VERSION_KEY] ?? "";
+    const deadline = Date.now() + timeoutMs;
     const source = skill.metadata[METADATA_SOURCE_KEY] ?? "";
-    const upstream = parseSkillFile(await this.http.getText(rawSkillUrl(source, this.rawBase), timeoutMs));
-    const latest = upstream.metadata[METADATA_VERSION_KEY];
-    if (!latest) throw new Error("upstream SKILL.md has no metadata.version");
-    return { installed, latest, updateHint: `Update it from ${source}.` };
+    const localVersion = skill.metadata[METADATA_VERSION_KEY];
+    const updateHint = `Update it from ${source}.`;
+    const upstreamText = await this.http.getText(rawSkillUrl(source, this.rawBase), timeoutMs);
+    const upstreamVersion = parseSkillFile(upstreamText).metadata[METADATA_VERSION_KEY];
+    if (localVersion && upstreamVersion && newerVersion(localVersion, upstreamVersion)) {
+      return { installed: localVersion, latest: upstreamVersion, updateHint };
+    }
+    const localText = await readFile4(join3(skill.directory, "SKILL.md"), "utf8");
+    if (sameSkill(localText, upstreamText)) {
+      return { installed: localVersion ?? "latest", latest: upstreamVersion ?? "latest", updateHint, order: "same" };
+    }
+    const github = parseGitHubSource(source);
+    if (!github) throw new Error("local copy differs from upstream and the source has no history to compare");
+    const revisions = await this.revisions(github, deadline);
+    const match = await this.findRevision(source, revisions, localText, deadline);
+    const head = revisions[0];
+    if (match === null || head === void 0) throw new Error("local copy matches no recent upstream revision (edited locally?)");
+    if (match === head) return { installed: localVersion ?? "latest", latest: upstreamVersion ?? "latest", updateHint, order: "same" };
+    return { installed: label(localVersion, match), latest: label(upstreamVersion, head), updateHint, order: "older" };
+  }
+  async revisions(github, deadline) {
+    const ref = github.ref ? `&sha=${encodeURIComponent(github.ref)}` : "";
+    const url = `${trimTrailingSlashes(this.apiBase)}/repos/${github.owner}/${github.repo}/commits?path=${encodeURIComponent(github.path)}&per_page=${MAX_REVISIONS}${ref}`;
+    return parseRevisions(await this.http.getText(url, remaining(deadline), { accept: "application/vnd.github+json" }));
+  }
+  /** Newest first, a few at a time, stopping at the first match. */
+  async findRevision(source, revisions, localText, deadline) {
+    for (let start = 0; start < revisions.length; start += PARALLEL_FETCHES) {
+      const batch = revisions.slice(start, start + PARALLEL_FETCHES);
+      const texts = await Promise.all(batch.map((r) => this.http.getText(rawSkillUrl(source, this.rawBase, r.sha), remaining(deadline))));
+      const index = texts.findIndex((text2) => sameSkill(localText, text2));
+      if (index >= 0) return batch[index] ?? null;
+    }
+    return null;
   }
 };
+function remaining(deadline) {
+  const left = deadline - Date.now();
+  if (left <= 0) throw new Error("timed out");
+  return left;
+}
 
 // src/infrastructure/spec-kit-version-source.ts
-import { readFile as readFile3 } from "node:fs/promises";
-import { join as join3, resolve as resolve2 } from "node:path";
+import { readFile as readFile5 } from "node:fs/promises";
+import { join as join4, resolve as resolve2 } from "node:path";
 var SPEC_KIT_SKILL = /^speckit[-.]/;
 var LATEST_RELEASE_PATH = "/repos/github/spec-kit/releases/latest";
 async function readJson(path) {
   try {
-    const data = JSON.parse(await readFile3(path, "utf8"));
+    const data = JSON.parse(await readFile5(path, "utf8"));
     return typeof data === "object" && data !== null ? data : null;
   } catch {
     return null;
@@ -7816,7 +7963,7 @@ var SpecKitVersionSource = class {
   }
   async resolve(skill, timeoutMs) {
     const projectRoot = resolve2(skill.directory, "..", "..", "..");
-    const recorded = await this.recordedVersion(join3(projectRoot, ".specify"));
+    const recorded = await this.recordedVersion(join4(projectRoot, ".specify"));
     const latest = await this.latestRelease(timeoutMs);
     return {
       installed: recorded.version,
@@ -7825,8 +7972,8 @@ var SpecKitVersionSource = class {
     };
   }
   async recordedVersion(specifyDir) {
-    const integration = await readJson(join3(specifyDir, "integration.json"));
-    const options = await readJson(join3(specifyDir, "init-options.json"));
+    const integration = await readJson(join4(specifyDir, "integration.json"));
+    const options = await readJson(join4(specifyDir, "init-options.json"));
     const version = text(integration?.version) ?? text(options?.speckit_version);
     if (!version) throw new Error("no Spec Kit version recorded in .specify/");
     const key = text(integration?.integration) ?? text(options?.integration) ?? text(options?.ai) ?? "claude";
@@ -7853,8 +8000,9 @@ var SystemClock = class {
 function createApp(config, userAgent) {
   const http = new FetchHttpClient(userAgent, config.githubToken ? { token: config.githubToken, hosts: GITHUB_HOSTS } : null);
   const checker = new SkillStatusChecker([
-    new MetadataVersionSource(http, config.githubRaw),
-    new SpecKitVersionSource(http, config.githubApi)
+    new SourceVersionSource(http, config.githubRaw, config.githubApi),
+    new SpecKitVersionSource(http, config.githubApi),
+    new SkillsLockVersionSource(http, config.githubApi, config.skillsLockFile)
   ]);
   const catalog = new FileSystemSkillCatalog(config.configDir);
   const store = new JsonFileStatusStore(config.statusFile);
@@ -7941,14 +8089,14 @@ function describe(status) {
 function formatReport(reports) {
   if (reports.length === 0) return "No skills found.\n";
   const labels = reports.map((r) => `${r.skill.name} (${r.skill.scope})`);
-  const width = Math.max(...labels.map((label) => label.length));
+  const width = Math.max(...labels.map((label2) => label2.length));
   const lines = reports.map((r, i) => (labels[i] ?? "").padEnd(width) + "  " + describe(r.status));
   return `${lines.join("\n")}
 `;
 }
 
 // src/presentation/cli.ts
-var VERSION = "0.1.0";
+var VERSION = "0.2.0";
 var USER_AGENT = `skill-check/${VERSION} (+https://github.com/louis8408/skill-check)`;
 var HELP = `skill-check ${VERSION}: warns when an agent skill is used while out of date.
 

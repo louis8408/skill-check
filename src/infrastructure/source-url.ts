@@ -2,34 +2,56 @@ import { trimSlashes, trimTrailingSlashes } from './text.js';
 
 const SKILL_FILE = 'SKILL.md';
 
-function githubRawUrl(path: string, rawBase: string): string {
-  const [owner = '', repoWithSuffix = '', kind, ref, ...rest] = trimSlashes(path).split('/');
-  const repo = repoWithSuffix.replace(/\.git$/, '');
-  if (!owner || !repo) throw new Error(`unsupported source: https://github.com/${path}`);
+/** A metadata.source that points into a GitHub repository. */
+export interface GitHubSource {
+  readonly owner: string;
+  readonly repo: string;
+  /** Branch, tag or commit; null means the default branch. */
+  readonly ref: string | null;
+  /** Path of the SKILL.md file inside the repository. */
+  readonly path: string;
+}
+
+function parseUrl(source: string): URL | null {
+  try {
+    return new URL(source.trim());
+  } catch {
+    return null;
+  }
+}
+
+export function parseGitHubSource(source: string): GitHubSource | null {
+  const url = parseUrl(source);
+  if (url?.hostname !== 'github.com') return null;
+
+  const [owner = '', repoWithSuffix = '', kind, ref, ...rest] = trimSlashes(url.pathname).split('/');
+  const repo = repoWithSuffix.endsWith('.git') ? repoWithSuffix.slice(0, -4) : repoWithSuffix;
+  if (!owner || !repo) return null;
 
   if ((kind === 'tree' || kind === 'blob') && ref) {
     const inner = rest.join('/');
-    const file = kind === 'blob' ? inner : [inner, SKILL_FILE].filter(Boolean).join('/');
-    return `${rawBase}/${owner}/${repo}/${ref}/${file}`;
+    const path = kind === 'blob' ? inner : [inner, SKILL_FILE].filter(Boolean).join('/');
+    return { owner, repo, ref, path };
   }
-  return `${rawBase}/${owner}/${repo}/HEAD/${SKILL_FILE}`;
+  return { owner, repo, ref: null, path: SKILL_FILE };
 }
 
 /**
  * Turns a `metadata.source` value into the URL of the upstream SKILL.md.
- * GitHub repository, tree and blob URLs map to raw.githubusercontent.com;
- * any other http(s) URL is used directly (appending SKILL.md for folders).
+ * GitHub repository, tree and blob URLs map to raw.githubusercontent.com (at `revision`
+ * when given, else at the source's ref); any other http(s) URL is used directly
+ * (appending SKILL.md for folders).
  */
-export function rawSkillUrl(source: string, rawBase: string): string {
-  let url: URL;
-  try {
-    url = new URL(source.trim());
-  } catch {
-    throw new Error(`unsupported source: ${source}`);
-  }
-  if (url.protocol !== 'https:' && url.protocol !== 'http:') throw new Error(`unsupported source: ${source}`);
+export function rawSkillUrl(source: string, rawBase: string, revision?: string): string {
+  const url = parseUrl(source);
+  if (!url || (url.protocol !== 'https:' && url.protocol !== 'http:')) throw new Error(`unsupported source: ${source}`);
 
-  if (url.hostname === 'github.com') return githubRawUrl(url.pathname, trimTrailingSlashes(rawBase));
+  const github = parseGitHubSource(source);
+  if (url.hostname === 'github.com') {
+    if (!github) throw new Error(`unsupported source: ${source}`);
+    const ref = revision ?? github.ref ?? 'HEAD';
+    return `${trimTrailingSlashes(rawBase)}/${github.owner}/${github.repo}/${ref}/${github.path}`;
+  }
   if (url.pathname.toLowerCase().endsWith('.md')) return url.toString();
   url.pathname = `${trimTrailingSlashes(url.pathname)}/${SKILL_FILE}`;
   return url.toString();

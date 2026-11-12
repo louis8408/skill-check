@@ -3,7 +3,6 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { InstalledSkill } from '../../src/domain/skill.js';
 import { FetchHttpClient } from '../../src/infrastructure/http-client.js';
-import { MetadataVersionSource } from '../../src/infrastructure/metadata-version-source.js';
 import { SpecKitVersionSource } from '../../src/infrastructure/spec-kit-version-source.js';
 import { FakeWeb, tempDir, writeSkill } from './helpers.js';
 
@@ -19,42 +18,6 @@ describe('version sources against a local HTTP server', () => {
   afterEach(async () => {
     await web.stop();
     await cleanup();
-  });
-
-  describe('MetadataVersionSource', () => {
-    const skill = (metadata: Record<string, string>): InstalledSkill => ({ name: 'deploy', directory: '/x', scope: 'personal', metadata });
-
-    it('applies only when both metadata.version and metadata.source are present', () => {
-      const source = new MetadataVersionSource(new FetchHttpClient('t'), 'http://unused');
-      expect(source.appliesTo(skill({ version: '1', source: 'https://github.com/o/r' }))).toBe(true);
-      expect(source.appliesTo(skill({ version: '1' }))).toBe(false);
-      expect(source.appliesTo(skill({ source: 'https://github.com/o/r' }))).toBe(false);
-    });
-
-    it('reads the latest version from the SKILL.md at the source', async () => {
-      web.route('/org/repo/main/skills/deploy/SKILL.md', { body: '---\nname: deploy\nmetadata:\n  version: 1.3.0\n---\n' });
-      const source = new MetadataVersionSource(new FetchHttpClient('skill-check-test'), web.baseUrl);
-      const info = await source.resolve(skill({ version: '1.0.0', source: 'https://github.com/org/repo/tree/main/skills/deploy' }), 2_000);
-      expect(info).toEqual({
-        installed: '1.0.0',
-        latest: '1.3.0',
-        updateHint: 'Update it from https://github.com/org/repo/tree/main/skills/deploy.',
-      });
-      expect(web.requests[0]?.headers['user-agent']).toBe('skill-check-test');
-    });
-
-    it('fails clearly when the upstream SKILL.md has no version', async () => {
-      web.route('/org/repo/HEAD/SKILL.md', { body: '---\nname: deploy\n---\n' });
-      const source = new MetadataVersionSource(new FetchHttpClient('t'), web.baseUrl);
-      await expect(source.resolve(skill({ version: '1.0.0', source: 'https://github.com/org/repo' }), 2_000)).rejects.toThrow(
-        'upstream SKILL.md has no metadata.version',
-      );
-    });
-
-    it('fails with the HTTP status when the source is missing', async () => {
-      const source = new MetadataVersionSource(new FetchHttpClient('t'), web.baseUrl);
-      await expect(source.resolve(skill({ version: '1.0.0', source: 'https://github.com/org/gone' }), 2_000)).rejects.toThrow('HTTP 404');
-    });
   });
 
   describe('SpecKitVersionSource', () => {

@@ -1,5 +1,23 @@
 import { describe, expect, it } from 'vitest';
-import { rawSkillUrl } from '../../../src/infrastructure/source-url.js';
+import { parseGitHubSource, rawSkillUrl } from '../../../src/infrastructure/source-url.js';
+
+describe('parseGitHubSource', () => {
+  it('splits tree, blob and bare repository URLs into owner, repo, ref and SKILL.md path', () => {
+    expect(parseGitHubSource('https://github.com/org/repo/tree/main/skills/deploy')).toEqual({
+      owner: 'org',
+      repo: 'repo',
+      ref: 'main',
+      path: 'skills/deploy/SKILL.md',
+    });
+    expect(parseGitHubSource('https://github.com/org/repo/blob/v2/x/SKILL.md')).toEqual({ owner: 'org', repo: 'repo', ref: 'v2', path: 'x/SKILL.md' });
+    expect(parseGitHubSource('https://github.com/org/repo')).toEqual({ owner: 'org', repo: 'repo', ref: null, path: 'SKILL.md' });
+  });
+
+  it('returns null for sources that are not on github.com', () => {
+    expect(parseGitHubSource('https://example.com/skills/deploy')).toBeNull();
+    expect(parseGitHubSource('not a url')).toBeNull();
+  });
+});
 
 const RAW = 'https://raw.githubusercontent.com';
 
@@ -13,6 +31,12 @@ describe('rawSkillUrl', () => {
   it('maps a GitHub blob URL of a SKILL.md file', () => {
     expect(rawSkillUrl('https://github.com/org/repo/blob/v2/skills/deploy/SKILL.md', RAW)).toBe(
       'https://raw.githubusercontent.com/org/repo/v2/skills/deploy/SKILL.md',
+    );
+  });
+
+  it('can point at a specific revision', () => {
+    expect(rawSkillUrl('https://github.com/org/repo/tree/main/skills/deploy', RAW, 'abc123')).toBe(
+      'https://raw.githubusercontent.com/org/repo/abc123/skills/deploy/SKILL.md',
     );
   });
 

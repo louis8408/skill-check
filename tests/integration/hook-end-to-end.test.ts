@@ -54,6 +54,7 @@ describe('skill-check CLI as a Claude Code hook (real files, local fake GitHub)'
       CLAUDE_PLUGIN_DATA: join(root, 'data'),
       SKILL_CHECK_GITHUB_API: web.baseUrl,
       SKILL_CHECK_GITHUB_RAW: web.baseUrl,
+      XDG_STATE_HOME: join(root, 'state'),
     };
     await writeSkill(join(root, 'claude', 'skills'), 'deploy', { version: '1.0.0', source: 'https://github.com/org/repo/tree/main/deploy' });
   });
@@ -118,6 +119,34 @@ describe('skill-check CLI as a Claude Code hook (real files, local fake GitHub)'
     const output = (await hook(useSkill('speckit-plan'))).stdout;
     expect(output).toContain('installed 0.12.0, latest v0.13.1');
     expect(output).toContain('specify integration upgrade claude');
+  });
+
+  it('warns about a skill installed with npx skills whose upstream folder changed', async () => {
+    await writeSkill(join(root, 'claude', 'skills'), 'react-best-practices');
+    await mkdir(join(root, 'state', 'skills'), { recursive: true });
+    await writeFile(
+      join(root, 'state', 'skills', '.skill-lock.json'),
+      JSON.stringify({
+        version: 3,
+        skills: {
+          'react-best-practices': {
+            source: 'vercel-labs/agent-skills',
+            sourceType: 'github',
+            sourceUrl: 'https://github.com/vercel-labs/agent-skills.git',
+            skillPath: 'skills/react-best-practices/SKILL.md',
+            skillFolderHash: 'aaaaaaa1111',
+            updatedAt: '2026-01-23T10:00:00.000Z',
+          },
+        },
+      }),
+    );
+    web.route('/repos/vercel-labs/agent-skills/git/trees/HEAD?recursive=1', {
+      body: JSON.stringify({ sha: 'r', tree: [{ path: 'skills/react-best-practices', type: 'tree', sha: 'bbbbbbb2222' }] }),
+    });
+
+    const output = (await hook(useSkill('react-best-practices'))).stdout;
+    expect(output).toContain('installed aaaaaaa (installed 2026-01-23), latest bbbbbbb');
+    expect(output).toContain('npx skills update react-best-practices');
   });
 
   it('check prints a status line per skill', async () => {

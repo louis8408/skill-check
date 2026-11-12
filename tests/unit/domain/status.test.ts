@@ -19,6 +19,16 @@ describe('evaluateStatus', () => {
     expect(evaluateStatus({ installed: '0.14.0.dev0', latest: '0.13.1', updateHint: '' }).kind).toBe('current');
   });
 
+  it('trusts an order the source worked out itself (content/revision checks, not version numbers)', () => {
+    expect(evaluateStatus({ installed: 'a1b2c3d (2026-01-23)', latest: '805687f (2026-04-14)', updateHint: 'h', order: 'older' })).toEqual({
+      kind: 'outdated',
+      installed: 'a1b2c3d (2026-01-23)',
+      latest: '805687f (2026-04-14)',
+      updateHint: 'h',
+    });
+    expect(evaluateStatus({ installed: '1.0.0', latest: '1.0.0', updateHint: '', order: 'same' }).kind).toBe('current');
+  });
+
   it('is unknown when either version cannot be parsed', () => {
     expect(evaluateStatus({ installed: 'unknown', latest: '1.0.0', updateHint: '' })).toEqual({
       kind: 'unknown',

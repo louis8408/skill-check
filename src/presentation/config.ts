@@ -10,6 +10,8 @@ export interface Config {
   readonly githubApi: string;
   readonly githubRaw: string;
   readonly githubToken: string | null;
+  /** Global lock file written by `npx skills` (vercel-labs/skills). */
+  readonly skillsLockFile: string;
 }
 
 type Env = Readonly<Record<string, string | undefined>>;
@@ -39,5 +41,12 @@ export function loadConfig(env: Env, home: string): Config {
     githubApi: nonEmpty(env.SKILL_CHECK_GITHUB_API) ?? 'https://api.github.com',
     githubRaw: nonEmpty(env.SKILL_CHECK_GITHUB_RAW) ?? 'https://raw.githubusercontent.com',
     githubToken: nonEmpty(env.GITHUB_TOKEN) ?? nonEmpty(env.GH_TOKEN),
+    skillsLockFile: skillsLockFile(env, home),
   };
+}
+
+/** Same rule as `npx skills`: $XDG_STATE_HOME/skills/.skill-lock.json, else ~/.agents/.skill-lock.json. */
+function skillsLockFile(env: Env, home: string): string {
+  const state = nonEmpty(env.XDG_STATE_HOME);
+  return state ? join(state, 'skills', '.skill-lock.json') : join(home, '.agents', '.skill-lock.json');
 }

@@ -11,6 +11,11 @@ export interface VersionInfo {
   readonly latest: string;
   /** How the user brings the skill up to date, e.g. a command to run. */
   readonly updateHint: string;
+  /**
+   * Set when the source compared the copies itself (by content or revision) instead of
+   * relying on version numbers, which authors often forget to bump.
+   */
+  readonly order?: 'older' | 'same';
 }
 
 export interface StoredStatus {
@@ -22,6 +27,11 @@ export interface StoredStatus {
 }
 
 export function evaluateStatus(info: VersionInfo): SkillStatus {
+  if (info.order === 'older') {
+    return { kind: 'outdated', installed: info.installed, latest: info.latest, updateHint: info.updateHint };
+  }
+  if (info.order === 'same') return { kind: 'current', installed: info.installed, latest: info.latest };
+
   const installed = parseVersion(info.installed);
   const latest = parseVersion(info.latest);
   if (!installed || !latest) {
