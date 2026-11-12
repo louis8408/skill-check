@@ -34,6 +34,18 @@ describe('JsonFileStatusStore (real file system)', () => {
     expect([await store.get('kept'), await store.get('a'), await store.get('b')]).toEqual([entry, entry, other]);
   });
 
+  it('treats a file with another shape (old schema, no entries) as empty', async () => {
+    const contents = ['{"schema":1,"entries":null}', '{"schema":0,"entries":{}}', '[]', 'null'];
+    const results = await Promise.all(
+      contents.map(async (content, i) => {
+        const path = join(root, `status-${i}.json`);
+        await writeFile(path, content);
+        return new JsonFileStatusStore(path).get('k');
+      }),
+    );
+    expect(results).toEqual([null, null, null, null]);
+  });
+
   it('treats a corrupt file as empty instead of failing the hook', async () => {
     const path = join(root, 'status.json');
     await writeFile(path, '{not json');

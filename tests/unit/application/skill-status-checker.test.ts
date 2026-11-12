@@ -16,6 +16,12 @@ describe('SkillStatusChecker', () => {
     expect(status).toEqual({ kind: 'unknown', reason: 'no version information (add metadata.source)' });
   });
 
+  it('copes with a source that rejects with something other than an Error', async () => {
+    // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- the case under test
+    const stringy = { id: 'odd', appliesTo: () => true, resolve: () => Promise.reject('boom') };
+    expect(await new SkillStatusChecker([stringy]).check(skill('x'), 1_000)).toEqual({ kind: 'unknown', reason: 'odd: boom' });
+  });
+
   it('turns a failing source into an unknown status naming the source', async () => {
     const status = await new SkillStatusChecker([new FakeSource('github', new Error('HTTP 404'))]).check(skill('x'), 1_000);
     expect(status).toEqual({ kind: 'unknown', reason: 'github: HTTP 404' });

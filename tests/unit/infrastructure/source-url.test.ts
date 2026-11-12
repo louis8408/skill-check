@@ -13,6 +13,11 @@ describe('parseGitHubSource', () => {
     expect(parseGitHubSource('https://github.com/org/repo')).toEqual({ owner: 'org', repo: 'repo', ref: null, path: 'SKILL.md' });
   });
 
+  it('returns null for github.com URLs without an owner and repository', () => {
+    expect(parseGitHubSource('https://github.com/')).toBeNull();
+    expect(parseGitHubSource('https://github.com/org')).toBeNull();
+  });
+
   it('returns null for sources that are not on github.com', () => {
     expect(parseGitHubSource('https://example.com/skills/deploy')).toBeNull();
     expect(parseGitHubSource('not a url')).toBeNull();
@@ -57,5 +62,7 @@ describe('rawSkillUrl', () => {
   it('rejects things that are not http(s) URLs', () => {
     expect(() => rawSkillUrl('git@github.com:org/repo.git', RAW)).toThrow('unsupported source');
     expect(() => rawSkillUrl('file:///etc/passwd', RAW)).toThrow('unsupported source');
+    expect(() => rawSkillUrl('not a url', RAW)).toThrow('unsupported source');
+    expect(() => rawSkillUrl('https://github.com/org', RAW)).toThrow('unsupported source');
   });
 });

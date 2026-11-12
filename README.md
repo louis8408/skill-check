@@ -94,6 +94,8 @@ npm ci
 npm run verify      # typecheck, lint (zero warnings), build, tests with coverage
 ```
 
+Coverage must stay at 100% (statements, branches, functions and lines); `npm run coverage` fails below that. The only file left out is `src/presentation/cli.ts`, which just wires the real process to `run()` in `main.ts` and is exercised as a child process by the end-to-end tests.
+
 The code follows Clean Architecture: `domain` (entities and ports, no dependencies) ← `application` (use cases) ← `infrastructure` (file system, HTTP, adapters) ← `presentation` (CLI, hooks, composition root). The layer rules are enforced by tests in `tests/architecture` using dependency-cruiser.
 
 Tests are split into `tests/unit`, `tests/integration` (real file system, a local HTTP server standing in for GitHub, and the bundled CLI run as a real process) and `tests/architecture`.

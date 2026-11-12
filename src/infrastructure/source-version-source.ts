@@ -27,10 +27,16 @@ function sameSkill(a: string, b: string): boolean {
   return normalize(a) === normalize(b);
 }
 
-function newerVersion(local: string | undefined, upstream: string | undefined): boolean {
-  const l = local === undefined ? null : parseVersion(local);
-  const u = upstream === undefined ? null : parseVersion(upstream);
+function newerVersion(local: string, upstream: string): boolean {
+  const l = parseVersion(local);
+  const u = parseVersion(upstream);
   return l !== null && u !== null && compareVersions(u, l) > 0;
+}
+
+/** The skill's metadata.source when it is an absolute http(s) URL, the only form the convention accepts. */
+function httpSource(skill: InstalledSkill): string | null {
+  const source = skill.metadata[METADATA_SOURCE_KEY] ?? '';
+  return source.startsWith('https://') || source.startsWith('http://') ? source : null;
 }
 
 function label(version: string | undefined, revision: Revision): string {
@@ -63,14 +69,15 @@ export class SourceVersionSource implements SkillVersionSource {
   ) {}
 
   /** Only absolute http(s) URLs follow the convention; e.g. Spec Kit writes a relative template path. */
+  /** Only absolute http(s) URLs follow the convention; e.g. Spec Kit writes a relative template path. */
   appliesTo(skill: InstalledSkill): boolean {
-    const source = skill.metadata[METADATA_SOURCE_KEY] ?? '';
-    return source.startsWith('https://') || source.startsWith('http://');
+    return httpSource(skill) !== null;
   }
 
   async resolve(skill: InstalledSkill, timeoutMs: number): Promise<VersionInfo> {
+    const source = httpSource(skill);
+    if (source === null) throw new Error('no http(s) metadata.source');
     const deadline = Date.now() + timeoutMs;
-    const source = skill.metadata[METADATA_SOURCE_KEY] ?? '';
     const localVersion = skill.metadata[METADATA_VERSION_KEY];
     const updateHint = `Update it from ${source}.`;
 
@@ -80,19 +87,17 @@ export class SourceVersionSource implements SkillVersionSource {
       return { installed: localVersion, latest: upstreamVersion, updateHint };
     }
 
+    const same: VersionInfo = { installed: localVersion ?? 'latest', latest: upstreamVersion ?? 'latest', updateHint, order: 'same' };
     const localText = await readFile(join(skill.directory, 'SKILL.md'), 'utf8');
-    if (sameSkill(localText, upstreamText)) {
-      return { installed: localVersion ?? 'latest', latest: upstreamVersion ?? 'latest', updateHint, order: 'same' };
-    }
+    if (sameSkill(localText, upstreamText)) return same;
 
     const github = parseGitHubSource(source);
     if (!github) throw new Error('local copy differs from upstream and the source has no history to compare');
 
-    const revisions = await this.revisions(github, deadline);
-    const match = await this.findRevision(source, revisions, localText, deadline);
-    const head = revisions[0];
-    if (match === null || head === undefined) throw new Error('local copy matches no recent upstream revision (edited locally?)');
-    if (match === head) return { installed: localVersion ?? 'latest', latest: upstreamVersion ?? 'latest', updateHint, order: 'same' };
+    const [head, ...older] = await this.revisions(github, deadline);
+    const match = head && (await this.findRevision(source, [head, ...older], localText, deadline));
+    if (!head || !match) throw new Error('local copy matches no recent upstream revision (edited locally?)');
+    if (match === head) return same;
     return { installed: label(localVersion, match), latest: label(upstreamVersion, head), updateHint, order: 'older' };
   }
 
@@ -106,10 +111,14 @@ export class SourceVersionSource implements SkillVersionSource {
   private async findRevision(source: string, revisions: readonly Revision[], localText: string, deadline: number): Promise<Revision | null> {
     const batch = revisions.slice(0, PARALLEL_FETCHES);
     if (batch.length === 0) return null;
-    const texts = await Promise.all(batch.map((r) => this.http.getText(rawSkillUrl(source, this.rawBase, r.sha), remaining(deadline))));
-    const index = texts.findIndex((text) => sameSkill(localText, text));
-    if (index >= 0) return batch[index] ?? null;
-    return this.findRevision(source, revisions.slice(PARALLEL_FETCHES), localText, deadline);
+    const fetched = await Promise.all(
+      batch.map(async (revision) => ({
+        revision,
+        text: await this.http.getText(rawSkillUrl(source, this.rawBase, revision.sha), remaining(deadline)),
+      })),
+    );
+    const found = fetched.find((f) => sameSkill(localText, f.text));
+    return found ? found.revision : this.findRevision(source, revisions.slice(PARALLEL_FETCHES), localText, deadline);
   }
 }
 

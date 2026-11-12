@@ -14,8 +14,8 @@ function describe(status: SkillStatus): string {
 
 export function formatReport(reports: readonly SkillReport[]): string {
   if (reports.length === 0) return 'No skills found.\n';
-  const labels = reports.map((r) => `${r.skill.name} (${r.skill.scope})`);
-  const width = Math.max(...labels.map((label) => label.length));
-  const lines = reports.map((r, i) => (labels[i] ?? '').padEnd(width) + '  ' + describe(r.status));
+  const rows = reports.map((r) => ({ label: `${r.skill.name} (${r.skill.scope})`, status: r.status }));
+  const width = Math.max(...rows.map((row) => row.label.length));
+  const lines = rows.map((row) => row.label.padEnd(width) + '  ' + describe(row.status));
   return `${lines.join('\n')}\n`;
 }

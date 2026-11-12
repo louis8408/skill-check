@@ -74,14 +74,15 @@ function comparePrerelease(a: string | null, b: string | null): Ordering {
   if (a === b) return 0;
   if (a === null) return 1;
   if (b === null) return -1;
-  const aParts = a.split('.');
-  const bParts = b.split('.');
-  const length = Math.min(aParts.length, bParts.length);
-  for (let i = 0; i < length; i++) {
-    const result = compareIdentifier(aParts[i] ?? '', bParts[i] ?? '');
-    if (result !== 0) return result;
-  }
-  return sign(aParts.length - bParts.length);
+  return compareIdentifiers(a.split('.'), b.split('.'));
+}
+
+/** Identifier by identifier; when one list runs out first, the longer one is greater. */
+function compareIdentifiers(a: readonly string[], b: readonly string[]): Ordering {
+  const [headA, ...restA] = a;
+  const [headB, ...restB] = b;
+  if (headA === undefined || headB === undefined) return sign(a.length - b.length);
+  return compareIdentifier(headA, headB) || compareIdentifiers(restA, restB);
 }
 
 export function compareVersions(a: Version, b: Version): Ordering {

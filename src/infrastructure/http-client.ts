@@ -1,3 +1,5 @@
+import { describeError } from '../domain/errors.js';
+
 /** Infrastructure-internal abstraction so version sources can be tested against a local server. */
 export interface HttpClient {
   getText(url: string, timeoutMs: number, headers?: Readonly<Record<string, string>>): Promise<string>;
@@ -28,7 +30,7 @@ export class FetchHttpClient implements HttpClient {
       response = await fetch(url, { headers: requestHeaders, signal: AbortSignal.timeout(timeoutMs), redirect: 'follow' });
     } catch (error) {
       if (error instanceof Error && error.name === 'TimeoutError') throw new Error(`timed out after ${timeoutMs} ms`);
-      throw new Error(`request failed: ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(`request failed: ${describeError(error)}`);
     }
     if (!response.ok) throw new Error(`HTTP ${response.status} for ${url}`);
     return response.text();

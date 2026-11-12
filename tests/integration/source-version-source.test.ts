@@ -1,7 +1,7 @@
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { InstalledSkill } from '../../src/domain/skill.js';
-import { FetchHttpClient } from '../../src/infrastructure/http-client.js';
+import { FetchHttpClient, type HttpClient } from '../../src/infrastructure/http-client.js';
 import { SourceVersionSource } from '../../src/infrastructure/source-version-source.js';
 import { FakeWeb, tempDir, writeSkillText } from './helpers.js';
 
@@ -104,6 +104,70 @@ describe('SourceVersionSource (metadata.source) against a local fake GitHub', ()
     await expect(source.resolve(await installed(skillText('1.0.0', 'mine', other), { version: '1.0.0', source: other }), 2_000)).rejects.toThrow(
       'local copy differs from upstream and the source has no history to compare',
     );
+  });
+
+  it('reports "latest" when the same content has no version on either side', async () => {
+    web.route(RAW_HEAD, { body: '---\nname: deploy\n---\nbody\n' });
+    expect(await source.resolve(await installed('---\nname: deploy\n---\nbody\n', { source: SOURCE }), 2_000)).toEqual({
+      installed: 'latest',
+      latest: 'latest',
+      updateHint: `Update it from ${SOURCE}.`,
+      order: 'same',
+    });
+  });
+
+  it('falls back to content when the versions cannot be compared', async () => {
+    web.route(RAW_HEAD, { body: skillText('next', 'body') });
+    const info = await source.resolve(await installed(skillText('next', 'body'), { version: 'next', source: SOURCE }), 2_000);
+    expect(info).toMatchObject({ order: 'same', installed: 'next' });
+  });
+
+  it('treats the newest commit as current even when the raw file at the branch lags behind it', async () => {
+    web.route(RAW_HEAD, { body: skillText('1.0.0', 'cached old body') });
+    web.route(COMMITS, { body: JSON.stringify([commit('ccccccc3333', '2026-04-14T10:00:00Z')]) });
+    web.route('/org/repo/ccccccc3333/skills/deploy/SKILL.md', { body: skillText('1.0.0', 'newest') });
+    expect(await source.resolve(await installed(skillText('1.0.0', 'newest')), 2_000)).toMatchObject({ order: 'same', installed: '1.0.0' });
+  });
+
+  it('lists commits on the default branch for a bare repository source and skips malformed commits', async () => {
+    const bare = 'https://github.com/org/repo';
+    web.route('/org/repo/HEAD/SKILL.md', { body: skillText('1.0.0', 'v2', bare) });
+    web.route('/repos/org/repo/commits?path=SKILL.md&per_page=30', {
+      body: JSON.stringify([{ sha: 42 }, commit('ccccccc3333', '2026-04-14T10:00:00Z'), commit('aaaaaaa1111', '2026-01-23T10:00:00Z')]),
+    });
+    web.route('/org/repo/ccccccc3333/SKILL.md', { body: skillText('1.0.0', 'v2', bare) });
+    web.route('/org/repo/aaaaaaa1111/SKILL.md', { body: skillText('1.0.0', 'v1', bare) });
+    const info = await source.resolve(await installed(skillText('1.0.0', 'v1', bare), { version: '1.0.0', source: bare }), 2_000);
+    expect(info).toMatchObject({ order: 'older', installed: '1.0.0 (aaaaaaa, 2026-01-23)' });
+  });
+
+  it('searches older commits in batches until it finds the match', async () => {
+    web.route(RAW_HEAD, { body: skillText('1.0.0', 'r0') });
+    const revisions = Array.from({ length: 7 }, (_, i) => commit(`sha${i}aaaaaaa`, `2026-0${9 - i}-01T00:00:00Z`));
+    web.route(COMMITS, { body: JSON.stringify(revisions) });
+    revisions.forEach((r, i) => web.route(`/org/repo/${r.sha}/skills/deploy/SKILL.md`, { body: skillText('1.0.0', `r${i}`) }));
+    expect(await source.resolve(await installed(skillText('1.0.0', 'r6')), 2_000)).toMatchObject({ order: 'older', installed: '1.0.0 (sha6aaa, 2026-03-01)' });
+  });
+
+  it('fails when the commit list is not a list (e.g. an API error body)', async () => {
+    web.route(RAW_HEAD, { body: skillText('1.0.0', 'upstream') });
+    web.route(COMMITS, { body: JSON.stringify({ message: 'API rate limit exceeded' }) });
+    await expect(source.resolve(await installed(skillText('1.0.0', 'mine')), 2_000)).rejects.toThrow('matches no recent upstream revision');
+  });
+
+  it('gives up with "timed out" when the time budget runs out between requests', async () => {
+    const slow: HttpClient = {
+      getText: async (url) => {
+        await new Promise((resolve) => setTimeout(resolve, 30));
+        return url.includes('/commits?') ? JSON.stringify([commit('aaaaaaa1111', '2026-01-23T10:00:00Z')]) : skillText('1.0.0', 'upstream');
+      },
+    };
+    const skill = await installed(skillText('1.0.0', 'mine'));
+    await expect(new SourceVersionSource(slow, 'http://raw', 'http://api').resolve(skill, 10)).rejects.toThrow('timed out');
+  });
+
+  it('refuses a skill that has no http(s) source (callers must check appliesTo first)', async () => {
+    await expect(source.resolve(await installed('x', { version: '1.0.0' }), 2_000)).rejects.toThrow('no http(s) metadata.source');
   });
 
   it('fails with the HTTP status when the upstream SKILL.md is missing', async () => {

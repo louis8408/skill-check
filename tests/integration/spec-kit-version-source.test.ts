@@ -61,12 +61,47 @@ describe('version sources against a local HTTP server', () => {
       );
     });
 
+    it('treats .specify files that are not JSON objects as missing', async () => {
+      const skill = await specKitProject({ 'integration.json': '42', 'init-options.json': 'null' });
+      await expect(new SpecKitVersionSource(new FetchHttpClient('t'), web.baseUrl).resolve(skill, 2_000)).rejects.toThrow(
+        'no Spec Kit version recorded in .specify/',
+      );
+    });
+
+    it('defaults the integration to claude when none is recorded', async () => {
+      web.route('/repos/github/spec-kit/releases/latest', { body: JSON.stringify({ tag_name: 'v2.0.0' }) });
+      const skill = await specKitProject({ 'init-options.json': JSON.stringify({ speckit_version: '1.0.0' }) });
+      const info = await new SpecKitVersionSource(new FetchHttpClient('t'), web.baseUrl).resolve(skill, 2_000);
+      expect(info.updateHint).toContain('specify integration upgrade claude');
+    });
+
+    it('uses the ai key of older init-options.json files', async () => {
+      web.route('/repos/github/spec-kit/releases/latest', { body: JSON.stringify({ tag_name: 'v2.0.0' }) });
+      const skill = await specKitProject({ 'init-options.json': JSON.stringify({ speckit_version: '1.0.0', ai: 'copilot' }) });
+      const info = await new SpecKitVersionSource(new FetchHttpClient('t'), web.baseUrl).resolve(skill, 2_000);
+      expect(info.updateHint).toContain('specify integration upgrade copilot');
+    });
+
+    it('fails when the latest release has no tag', async () => {
+      web.route('/repos/github/spec-kit/releases/latest', { body: JSON.stringify({ name: 'x' }) });
+      const skill = await specKitProject({ 'integration.json': JSON.stringify({ version: '1.0.0' }) });
+      await expect(new SpecKitVersionSource(new FetchHttpClient('t'), web.baseUrl).resolve(skill, 2_000)).rejects.toThrow(
+        'latest Spec Kit release has no tag',
+      );
+    });
+
     it('sends a GitHub token to the API when one is configured', async () => {
       web.route('/repos/github/spec-kit/releases/latest', { body: JSON.stringify({ tag_name: 'v1.0.0' }) });
       const skill = await specKitProject({ 'integration.json': JSON.stringify({ version: '1.0.0' }) });
       await new SpecKitVersionSource(new FetchHttpClient('t', { token: 'secret', hosts: ['127.0.0.1'] }), web.baseUrl).resolve(skill, 2_000);
       expect(web.requests[0]?.headers.authorization).toBe('Bearer secret');
     });
+  });
+
+  it('FetchHttpClient reports a failed connection clearly', async () => {
+    await web.stop();
+    await expect(new FetchHttpClient('t').getText(`${web.baseUrl}/x`, 2_000)).rejects.toThrow('request failed: fetch failed');
+    await web.start();
   });
 
   it('FetchHttpClient times out instead of hanging the hook', async () => {

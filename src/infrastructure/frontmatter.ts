@@ -20,7 +20,8 @@ export function parseSkillFile(text: string): SkillFile {
   let data: unknown;
   try {
     // The failsafe schema keeps every scalar a string, so "version: 1.10" stays "1.10".
-    data = parse(match[1] ?? '', { schema: 'failsafe' });
+    // Group 1 always takes part in a FRONTMATTER match, so it is a string here.
+    data = parse(match[1] as string, { schema: 'failsafe' });
   } catch {
     return EMPTY;
   }
