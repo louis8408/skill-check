@@ -38,5 +38,6 @@ describe('parseSkillFile', () => {
     expect(parseSkillFile('# just markdown')).toEqual({ name: null, metadata: {} });
     expect(parseSkillFile('---\nname: [unclosed\n---\n')).toEqual({ name: null, metadata: {} });
     expect(parseSkillFile('---\nmetadata: just-a-string\n---\n')).toEqual({ name: null, metadata: {} });
+    expect(parseSkillFile('---\n- a list\n---\n')).toEqual({ name: null, metadata: {} });
   });
 });

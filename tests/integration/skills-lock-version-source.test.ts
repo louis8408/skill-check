@@ -70,6 +70,23 @@ describe('SkillsLockVersionSource (npx skills lock file) against a local fake Gi
     expect(await source().resolve(personal('react-best-practices'), 2_000)).toMatchObject({ order: 'same' });
   });
 
+  it('handles a skill at the repository root, an entry without a date, and a path without SKILL.md', async () => {
+    web.route('/repos/acme/one-skill/git/trees/HEAD?recursive=1', { body: JSON.stringify({ sha: 'rootsha1234', tree: [] }) });
+    web.route('/repos/acme/many/git/trees/HEAD?recursive=1', { body: tree('aaaaaaaa11112222').replace('skills/react-best-practices', 'skills/x') });
+    await writeLock({
+      root: lockEntry({ source: 'acme/one-skill', skillPath: undefined, updatedAt: undefined, skillFolderHash: 'oldroot1234' }),
+      folder: lockEntry({ source: 'acme/many', skillPath: 'skills/x', updatedAt: undefined }),
+    });
+    expect(await source().resolve(personal('root'), 2_000)).toMatchObject({ installed: 'oldroot', latest: 'rootsha', order: 'older' });
+    expect(await source().resolve(personal('folder'), 2_000)).toMatchObject({ installed: 'aaaaaaa', order: 'same' });
+  });
+
+  it('fails clearly when the lock file has no skills map', async () => {
+    await mkdir(join(root, '.agents'), { recursive: true });
+    await writeFile(lockPath, JSON.stringify({ version: 3 }));
+    await expect(source().resolve(personal('mine'), 2_000)).rejects.toThrow('no version information');
+  });
+
   it('fails clearly when the skill was not installed by npx skills', async () => {
     await writeLock({});
     await expect(source().resolve(personal('mine'), 2_000)).rejects.toThrow('no version information (add metadata.source, or install with npx skills)');
@@ -85,5 +102,7 @@ describe('SkillsLockVersionSource (npx skills lock file) against a local fake Gi
     await writeLock({ 'react-best-practices': lockEntry() });
     web.route(TREE, { body: JSON.stringify({ sha: 'root', tree: [] }) });
     await expect(source().resolve(personal('react-best-practices'), 2_000)).rejects.toThrow('skills/react-best-practices is no longer in vercel-labs/agent-skills');
+    web.route(TREE, { body: JSON.stringify({ sha: 'root' }) });
+    await expect(source().resolve(personal('react-best-practices'), 2_000)).rejects.toThrow('is no longer in');
   });
 });

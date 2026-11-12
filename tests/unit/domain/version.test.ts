@@ -41,6 +41,16 @@ describe('compareVersions', () => {
 
   it('treats missing trailing parts as zero', () => {
     expect(cmp('1.2', '1.2.0')).toBe(0);
+    expect(cmp('1.2.0', '1.2')).toBe(0);
+  });
+
+  it('ranks numeric pre-release identifiers below alphanumeric ones (semver rule)', () => {
+    expect(cmp('1.0.0-1', '1.0.0-alpha')).toBe(-1);
+    expect(cmp('1.0.0-alpha', '1.0.0-1')).toBe(1);
+  });
+
+  it('ranks a longer pre-release above its own prefix', () => {
+    expect(cmp('1.0.0-alpha.1', '1.0.0-alpha')).toBe(1);
   });
 
   it('ranks a pre-release below its release', () => {

@@ -8,6 +8,6 @@
   },
   "homepage": "https://github.com/louis8408/skill-check",
   "repository": "https://github.com/louis8408/skill-check",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "keywords": ["skills", "versioning", "updates", "spec-kit"]
 }

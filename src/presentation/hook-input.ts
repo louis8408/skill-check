@@ -9,7 +9,8 @@ export interface HookInput {
 }
 
 const EVENTS: ReadonlySet<string> = new Set(['PreToolUse', 'UserPromptSubmit', 'SessionStart']);
-const SLASH_COMMAND = /^\s*\/([\w:.-]+)/;
+/** A prompt that starts with "/name" followed by whitespace or the end. */
+const SLASH_COMMAND = /^\s*\/[\w:.-]+(?:\s|$)/;
 const SKILL_TOOL = 'Skill';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -22,8 +23,11 @@ function str(value: unknown): string | null {
 
 /** "/deploy prod" -> "deploy" */
 function commandName(value: string): string | null {
-  const first = value.trim().replace(/^\//, '').split(/\s+/)[0];
-  return first === undefined || first === '' ? null : first;
+  const text = value.trim();
+  const body = text.startsWith('/') ? text.slice(1) : text;
+  const end = body.search(/\s/);
+  const name = end === -1 ? body : body.slice(0, end);
+  return name === '' ? null : name;
 }
 
 function skillFromToolCall(data: Record<string, unknown>): string | null {
@@ -36,7 +40,7 @@ function skillFromToolCall(data: Record<string, unknown>): string | null {
 
 function skillFromPrompt(data: Record<string, unknown>): string | null {
   const prompt = str(data.prompt);
-  return prompt === null ? null : (SLASH_COMMAND.exec(prompt)?.[1] ?? null);
+  return prompt !== null && SLASH_COMMAND.test(prompt) ? commandName(prompt) : null;
 }
 
 export function readHookInput(stdin: string): HookInput | null {

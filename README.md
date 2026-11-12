@@ -1,5 +1,9 @@
 # skill-check
 
+[![ci](https://github.com/louis8408/skill-check/actions/workflows/ci.yml/badge.svg)](https://github.com/louis8408/skill-check/actions/workflows/ci.yml)
+[![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=louis8408_skill-check&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=louis8408_skill-check)
+[![Coverage](https://sonarcloud.io/api/project_badges/measure?project=louis8408_skill-check&metric=coverage)](https://sonarcloud.io/summary/new_code?id=louis8408_skill-check)
+
 Know when a skill you're using is out of date.
 
 Agent skills (`SKILL.md` folders for Claude Code and other agents) change often, but once a skill is copied into your skills folder nothing tracks it. Your agent keeps running the old copy, and a stale skill doesn't fail; it just quietly does worse work.
@@ -94,6 +98,8 @@ npm ci
 npm run verify      # typecheck, lint (zero warnings), build, tests with coverage
 ```
 
+Coverage must stay at 100% (statements, branches, functions and lines); `npm run coverage` fails below that. The only file left out is `src/presentation/cli.ts`, which just wires the real process to `run()` in `main.ts` and is exercised as a child process by the end-to-end tests.
+
 The code follows Clean Architecture: `domain` (entities and ports, no dependencies) ← `application` (use cases) ← `infrastructure` (file system, HTTP, adapters) ← `presentation` (CLI, hooks, composition root). The layer rules are enforced by tests in `tests/architecture` using dependency-cruiser.
 
 Tests are split into `tests/unit`, `tests/integration` (real file system, a local HTTP server standing in for GitHub, and the bundled CLI run as a real process) and `tests/architecture`.
@@ -106,4 +112,7 @@ skill-check is a reference implementation. The real aim is for skill version and
 
 ## License
 
-MIT
+- **Code:** [Apache-2.0](LICENSE). Use it, change it and build on it, including commercially. Redistributions must keep the `LICENSE` and [`NOTICE`](NOTICE) files and mark changed files, and the license grants no rights to the skill-check name.
+- **The convention ([CONVENTION.md](CONVENTION.md)):** [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). Adopt it anywhere, including in specifications, with credit.
+
+Versions up to 0.2.1 were released under MIT.

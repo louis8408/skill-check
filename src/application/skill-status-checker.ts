@@ -1,3 +1,4 @@
+import { describeError } from '../domain/errors.js';
 import type { SkillVersionSource } from '../domain/ports.js';
 import type { InstalledSkill } from '../domain/skill.js';
 import { evaluateStatus, type SkillStatus } from '../domain/status.js';
@@ -13,8 +14,7 @@ export class SkillStatusChecker {
     try {
       return evaluateStatus(await source.resolve(skill, timeoutMs));
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      return { kind: 'unknown', reason: `${source.id}: ${message}` };
+      return { kind: 'unknown', reason: `${source.id}: ${describeError(error)}` };
     }
   }
 }

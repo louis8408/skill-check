@@ -7368,9 +7368,16 @@ var require_dist = __commonJS({
 });
 
 // src/presentation/cli.ts
-import { appendFile, mkdir as mkdir2 } from "node:fs/promises";
 import { homedir } from "node:os";
+
+// src/presentation/main.ts
+import { appendFile, mkdir as mkdir2 } from "node:fs/promises";
 import { dirname as dirname3 } from "node:path";
+
+// src/domain/errors.ts
+function describeError(error) {
+  return error instanceof Error ? error.message : String(error);
+}
 
 // src/presentation/config.ts
 import { join } from "node:path";
@@ -7458,14 +7465,13 @@ function comparePrerelease(a, b) {
   if (a === b) return 0;
   if (a === null) return 1;
   if (b === null) return -1;
-  const aParts = a.split(".");
-  const bParts = b.split(".");
-  const length = Math.min(aParts.length, bParts.length);
-  for (let i = 0; i < length; i++) {
-    const result = compareIdentifier(aParts[i] ?? "", bParts[i] ?? "");
-    if (result !== 0) return result;
-  }
-  return sign(aParts.length - bParts.length);
+  return compareIdentifiers(a.split("."), b.split("."));
+}
+function compareIdentifiers(a, b) {
+  const [headA, ...restA] = a;
+  const [headB, ...restB] = b;
+  if (headA === void 0 || headB === void 0) return sign(a.length - b.length);
+  return compareIdentifier(headA, headB) || compareIdentifiers(restA, restB);
 }
 function compareVersions(a, b) {
   const release = compareRelease(a.release, b.release);
@@ -7576,8 +7582,7 @@ var SkillStatusChecker = class {
     try {
       return evaluateStatus(await source.resolve(skill, timeoutMs));
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      return { kind: "unknown", reason: `${source.id}: ${message}` };
+      return { kind: "unknown", reason: `${source.id}: ${describeError(error)}` };
     }
   }
 };
@@ -7598,7 +7603,7 @@ function parseSkillFile(text2) {
   if (!match) return EMPTY;
   let data;
   try {
-    data = (0, import_yaml.parse)(match[1] ?? "", { schema: "failsafe" });
+    data = (0, import_yaml.parse)(match[1], { schema: "failsafe" });
   } catch {
     return EMPTY;
   }
@@ -7685,7 +7690,7 @@ var FetchHttpClient = class {
       response = await fetch(url, { headers: requestHeaders, signal: AbortSignal.timeout(timeoutMs), redirect: "follow" });
     } catch (error) {
       if (error instanceof Error && error.name === "TimeoutError") throw new Error(`timed out after ${timeoutMs} ms`);
-      throw new Error(`request failed: ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(`request failed: ${describeError(error)}`);
     }
     if (!response.ok) throw new Error(`HTTP ${response.status} for ${url}`);
     return response.text();
@@ -7858,9 +7863,13 @@ function sameSkill(a, b) {
   return normalize(a) === normalize(b);
 }
 function newerVersion(local, upstream) {
-  const l = local === void 0 ? null : parseVersion(local);
-  const u = upstream === void 0 ? null : parseVersion(upstream);
+  const l = parseVersion(local);
+  const u = parseVersion(upstream);
   return l !== null && u !== null && compareVersions(u, l) > 0;
+}
+function httpSource(skill) {
+  const source = skill.metadata[METADATA_SOURCE_KEY] ?? "";
+  return source.startsWith("https://") || source.startsWith("http://") ? source : null;
 }
 function label(version, revision) {
   const id = `${revision.sha.slice(0, 7)}, ${revision.date.slice(0, 10)}`;
@@ -7886,13 +7895,14 @@ var SourceVersionSource = class {
   apiBase;
   id = "source";
   /** Only absolute http(s) URLs follow the convention; e.g. Spec Kit writes a relative template path. */
+  /** Only absolute http(s) URLs follow the convention; e.g. Spec Kit writes a relative template path. */
   appliesTo(skill) {
-    const source = skill.metadata[METADATA_SOURCE_KEY] ?? "";
-    return source.startsWith("https://") || source.startsWith("http://");
+    return httpSource(skill) !== null;
   }
   async resolve(skill, timeoutMs) {
+    const source = httpSource(skill);
+    if (source === null) throw new Error("no http(s) metadata.source");
     const deadline = Date.now() + timeoutMs;
-    const source = skill.metadata[METADATA_SOURCE_KEY] ?? "";
     const localVersion = skill.metadata[METADATA_VERSION_KEY];
     const updateHint = `Update it from ${source}.`;
     const upstreamText = await this.http.getText(rawSkillUrl(source, this.rawBase), timeoutMs);
@@ -7900,17 +7910,15 @@ var SourceVersionSource = class {
     if (localVersion && upstreamVersion && newerVersion(localVersion, upstreamVersion)) {
       return { installed: localVersion, latest: upstreamVersion, updateHint };
     }
+    const same = { installed: localVersion ?? "latest", latest: upstreamVersion ?? "latest", updateHint, order: "same" };
     const localText = await readFile4(join3(skill.directory, "SKILL.md"), "utf8");
-    if (sameSkill(localText, upstreamText)) {
-      return { installed: localVersion ?? "latest", latest: upstreamVersion ?? "latest", updateHint, order: "same" };
-    }
+    if (sameSkill(localText, upstreamText)) return same;
     const github = parseGitHubSource(source);
     if (!github) throw new Error("local copy differs from upstream and the source has no history to compare");
-    const revisions = await this.revisions(github, deadline);
-    const match = await this.findRevision(source, revisions, localText, deadline);
-    const head = revisions[0];
-    if (match === null || head === void 0) throw new Error("local copy matches no recent upstream revision (edited locally?)");
-    if (match === head) return { installed: localVersion ?? "latest", latest: upstreamVersion ?? "latest", updateHint, order: "same" };
+    const [head, ...older] = await this.revisions(github, deadline);
+    const match = head && await this.findRevision(source, [head, ...older], localText, deadline);
+    if (!head || !match) throw new Error("local copy matches no recent upstream revision (edited locally?)");
+    if (match === head) return same;
     return { installed: label(localVersion, match), latest: label(upstreamVersion, head), updateHint, order: "older" };
   }
   async revisions(github, deadline) {
@@ -7922,10 +7930,14 @@ var SourceVersionSource = class {
   async findRevision(source, revisions, localText, deadline) {
     const batch = revisions.slice(0, PARALLEL_FETCHES);
     if (batch.length === 0) return null;
-    const texts = await Promise.all(batch.map((r) => this.http.getText(rawSkillUrl(source, this.rawBase, r.sha), remaining(deadline))));
-    const index = texts.findIndex((text2) => sameSkill(localText, text2));
-    if (index >= 0) return batch[index] ?? null;
-    return this.findRevision(source, revisions.slice(PARALLEL_FETCHES), localText, deadline);
+    const fetched = await Promise.all(
+      batch.map(async (revision) => ({
+        revision,
+        text: await this.http.getText(rawSkillUrl(source, this.rawBase, revision.sha), remaining(deadline))
+      }))
+    );
+    const found = fetched.find((f) => sameSkill(localText, f.text));
+    return found ? found.revision : this.findRevision(source, revisions.slice(PARALLEL_FETCHES), localText, deadline);
   }
 };
 function remaining(deadline) {
@@ -8018,7 +8030,7 @@ function createApp(config, userAgent) {
 
 // src/presentation/hook-input.ts
 var EVENTS = /* @__PURE__ */ new Set(["PreToolUse", "UserPromptSubmit", "SessionStart"]);
-var SLASH_COMMAND = /^\s*\/([\w:.-]+)/;
+var SLASH_COMMAND = /^\s*\/[\w:.-]+(?:\s|$)/;
 var SKILL_TOOL = "Skill";
 function isRecord2(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -8027,8 +8039,11 @@ function str(value) {
   return typeof value === "string" && value.trim() !== "" ? value : null;
 }
 function commandName(value) {
-  const first = value.trim().replace(/^\//, "").split(/\s+/)[0];
-  return first === void 0 || first === "" ? null : first;
+  const text2 = value.trim();
+  const body = text2.startsWith("/") ? text2.slice(1) : text2;
+  const end = body.search(/\s/);
+  const name = end === -1 ? body : body.slice(0, end);
+  return name === "" ? null : name;
 }
 function skillFromToolCall(data) {
   if (data.tool_name !== SKILL_TOOL || !isRecord2(data.tool_input)) return null;
@@ -8038,7 +8053,7 @@ function skillFromToolCall(data) {
 }
 function skillFromPrompt(data) {
   const prompt = str(data.prompt);
-  return prompt === null ? null : SLASH_COMMAND.exec(prompt)?.[1] ?? null;
+  return prompt !== null && SLASH_COMMAND.test(prompt) ? commandName(prompt) : null;
 }
 function readHookInput(stdin) {
   let data;
@@ -8088,14 +8103,14 @@ function describe(status) {
 }
 function formatReport(reports) {
   if (reports.length === 0) return "No skills found.\n";
-  const labels = reports.map((r) => `${r.skill.name} (${r.skill.scope})`);
-  const width = Math.max(...labels.map((label2) => label2.length));
-  const lines = reports.map((r, i) => (labels[i] ?? "").padEnd(width) + "  " + describe(r.status));
+  const rows = reports.map((r) => ({ label: `${r.skill.name} (${r.skill.scope})`, status: r.status }));
+  const width = Math.max(...rows.map((row) => row.label.length));
+  const lines = rows.map((row) => row.label.padEnd(width) + "  " + describe(row.status));
   return `${lines.join("\n")}
 `;
 }
 
-// src/presentation/cli.ts
+// src/presentation/main.ts
 var VERSION = "0.2.1";
 var USER_AGENT = `skill-check/${VERSION} (+https://github.com/louis8408/skill-check)`;
 var HELP = `skill-check ${VERSION}: warns when an agent skill is used while out of date.
@@ -8105,49 +8120,57 @@ Usage:
   skill-check check [--cwd DIR]  Check every skill visible from DIR and print the results.
   skill-check --version
 `;
-async function readStdin() {
-  if (process.stdin.isTTY) return "";
-  const chunks = [];
-  for await (const chunk of process.stdin) chunks.push(chunk);
-  return Buffer.concat(chunks).toString("utf8");
-}
 async function debugLog(config, line) {
   if (!config.debugLog) return;
   await mkdir2(dirname3(config.debugLog), { recursive: true });
   await appendFile(config.debugLog, `${(/* @__PURE__ */ new Date()).toISOString()} ${line}
 `);
 }
-async function hook(config) {
+async function hook(config, io) {
   try {
-    const stdin = await readStdin();
+    const stdin = await io.readStdin();
     await debugLog(config, stdin.trim());
     const output = await runHook(stdin, createApp(config, USER_AGENT));
-    if (output) process.stdout.write(output);
+    if (output) io.write(output);
   } catch (error) {
-    await debugLog(config, `error: ${error instanceof Error ? error.stack ?? error.message : String(error)}`).catch(() => void 0);
+    await debugLog(config, `error: ${describeError(error)}`).catch(() => void 0);
   }
 }
-async function check(config, args) {
+async function check(config, args, io) {
   const cwdIndex = args.indexOf("--cwd");
-  const cwd = cwdIndex >= 0 ? args[cwdIndex + 1] ?? process.cwd() : process.cwd();
+  const cwd = (cwdIndex >= 0 ? args[cwdIndex + 1] : void 0) ?? io.cwd;
   const reports = await createApp(config, USER_AGENT).refresh.execute({ cwd });
-  process.stdout.write(formatReport(reports));
+  io.write(formatReport(reports));
 }
-async function main(args) {
-  const config = loadConfig(process.env, homedir());
+async function run(args, io) {
+  const config = loadConfig(io.env, io.home);
   const [command, ...rest] = args;
   switch (command) {
     case "hook":
-      return hook(config);
+      return hook(config, io);
     case "check":
-      return check(config, rest);
+      return check(config, rest, io);
     case "--version":
     case "-v":
-      process.stdout.write(`${VERSION}
+      io.write(`${VERSION}
 `);
       return;
     default:
-      process.stdout.write(HELP);
+      io.write(HELP);
   }
 }
-await main(process.argv.slice(2));
+
+// src/presentation/cli.ts
+async function readStdin() {
+  if (process.stdin.isTTY) return "";
+  const chunks = [];
+  for await (const chunk of process.stdin) chunks.push(chunk);
+  return Buffer.concat(chunks).toString("utf8");
+}
+await run(process.argv.slice(2), {
+  env: process.env,
+  home: homedir(),
+  cwd: process.cwd(),
+  readStdin,
+  write: (text2) => process.stdout.write(text2)
+});
