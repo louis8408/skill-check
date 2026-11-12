@@ -7886,8 +7886,10 @@ var SourceVersionSource = class {
   rawBase;
   apiBase;
   id = "source";
+  /** Only absolute http(s) URLs follow the convention; e.g. Spec Kit writes a relative template path. */
   appliesTo(skill) {
-    return Boolean(skill.metadata[METADATA_SOURCE_KEY]);
+    const source = skill.metadata[METADATA_SOURCE_KEY] ?? "";
+    return source.startsWith("https://") || source.startsWith("http://");
   }
   async resolve(skill, timeoutMs) {
     const deadline = Date.now() + timeoutMs;
@@ -8096,7 +8098,7 @@ function formatReport(reports) {
 }
 
 // src/presentation/cli.ts
-var VERSION = "0.2.0";
+var VERSION = "0.2.1";
 var USER_AGENT = `skill-check/${VERSION} (+https://github.com/louis8408/skill-check)`;
 var HELP = `skill-check ${VERSION}: warns when an agent skill is used while out of date.
 

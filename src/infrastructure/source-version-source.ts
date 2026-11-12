@@ -62,8 +62,10 @@ export class SourceVersionSource implements SkillVersionSource {
     private readonly apiBase: string,
   ) {}
 
+  /** Only absolute http(s) URLs follow the convention; e.g. Spec Kit writes a relative template path. */
   appliesTo(skill: InstalledSkill): boolean {
-    return Boolean(skill.metadata[METADATA_SOURCE_KEY]);
+    const source = skill.metadata[METADATA_SOURCE_KEY] ?? '';
+    return source.startsWith('https://') || source.startsWith('http://');
   }
 
   async resolve(skill: InstalledSkill, timeoutMs: number): Promise<VersionInfo> {

@@ -1,6 +1,6 @@
 {
   "name": "skill-check",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Warns when an AI agent skill is used while out of date. Reference checker for the SKILL.md metadata.version / metadata.source convention.",
   "type": "module",
   "bin": {

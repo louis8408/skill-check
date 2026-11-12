@@ -44,6 +44,12 @@ describe('SourceVersionSource (metadata.source) against a local fake GitHub', ()
     expect(source.appliesTo(skill({ version: '1.0.0' }))).toBe(false);
   });
 
+  it('ignores a source that is not an http(s) URL (Spec Kit writes a relative template path there)', () => {
+    const skill = (src: string): InstalledSkill => ({ name: 'x', directory: '/x', scope: 'project', metadata: { source: src } });
+    expect(source.appliesTo(skill('templates/commands/plan.md'))).toBe(false);
+    expect(source.appliesTo(skill('git@github.com:o/r.git'))).toBe(false);
+  });
+
   it('uses version numbers when the upstream version is higher', async () => {
     web.route(RAW_HEAD, { body: skillText('1.2.0', 'new body') });
     const info = await source.resolve(await installed(skillText('1.0.0', 'old body')), 2_000);

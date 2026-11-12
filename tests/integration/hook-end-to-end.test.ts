@@ -113,7 +113,8 @@ describe('skill-check CLI as a Claude Code hook (real files, local fake GitHub)'
   it('warns about an outdated Spec Kit project', async () => {
     await mkdir(join(project, '.specify'), { recursive: true });
     await writeFile(join(project, '.specify', 'integration.json'), JSON.stringify({ version: '0.12.0', integration: 'claude' }));
-    await writeSkill(join(project, '.claude', 'skills'), 'speckit-plan');
+    // Real Spec Kit output: metadata.source is a relative template path, not a URL.
+    await writeSkill(join(project, '.claude', 'skills'), 'speckit-plan', { author: '"github-spec-kit"', source: '"templates/commands/plan.md"' });
     web.route('/repos/github/spec-kit/releases/latest', { body: JSON.stringify({ tag_name: 'v0.13.1' }) });
 
     const output = (await hook(useSkill('speckit-plan'))).stdout;
