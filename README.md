@@ -29,6 +29,8 @@ More ecosystems are added as adapters (one class each) without touching the rest
 
 Requires [Node.js](https://nodejs.org) 20 or later on your `PATH`. Nothing else: the plugin is one prebuilt file with no dependencies, so there's no `npm install` step.
 
+This repository is the marketplace for both agents, so you install straight from GitHub. skill-check isn't in Anthropic's plugin directory or OpenAI's Codex plugin directory: both currently refuse plugins with hooks (Anthropic's accepts them only from Verified organizations), and skill-check works entirely through hooks.
+
 ### Claude Code
 
 ```
