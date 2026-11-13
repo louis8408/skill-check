@@ -1,6 +1,6 @@
 // Shared esbuild options for the release bundle (scripts/build.mjs) and the end-to-end tests.
-// The CLI is bundled into one dependency-free file so the hook starts fast and the
-// plugin works without `npm install`.
+// The CLI has no runtime dependencies; it is bundled into one readable file so the hook
+// starts fast and the plugin works without `npm install`.
 export function cliBuildOptions(outfile) {
   return {
     entryPoints: ['src/presentation/cli.ts'],
@@ -9,10 +9,7 @@ export function cliBuildOptions(outfile) {
     platform: 'node',
     target: 'node20',
     format: 'esm',
-    // Bundled CommonJS dependencies (yaml) call require(); give the ESM bundle one.
-    banner: {
-      js: "#!/usr/bin/env node\nimport { createRequire as __createRequire } from 'node:module';\nconst require = __createRequire(import.meta.url);",
-    },
+    banner: { js: '#!/usr/bin/env node' },
     legalComments: 'none',
     logLevel: 'warning',
   };

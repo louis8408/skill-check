@@ -19,7 +19,7 @@ describe('runHook with the real composition root', () => {
     await web.start();
     ({ path: root, cleanup } = await tempDir());
     const config = loadConfig(
-      { CLAUDE_CONFIG_DIR: join(root, 'claude'), CLAUDE_PLUGIN_DATA: join(root, 'data'), SKILL_CHECK_GITHUB_RAW: web.baseUrl, SKILL_CHECK_GITHUB_API: web.baseUrl, GH_TOKEN: 't', XDG_STATE_HOME: join(root, 'state') },
+      { CLAUDE_CONFIG_DIR: join(root, 'claude'), CLAUDE_PLUGIN_DATA: join(root, 'data'), SKILL_CHECK_GITHUB_RAW: web.baseUrl, SKILL_CHECK_GITHUB_API: web.baseUrl, SKILL_CHECK_GITHUB_TOKEN: 't', XDG_STATE_HOME: join(root, 'state') },
       root,
     );
     app = createApp(config, 'skill-check-test');
@@ -38,7 +38,7 @@ describe('runHook with the real composition root', () => {
 
   it('for Codex, warns about every outdated skill a prompt mentions, in one message', async () => {
     const codexConfig = loadConfig(
-      { CODEX_HOME: join(root, 'codex'), PLUGIN_DATA: join(root, 'codex-data'), SKILL_CHECK_GITHUB_RAW: web.baseUrl, SKILL_CHECK_GITHUB_API: web.baseUrl, GH_TOKEN: 't', XDG_STATE_HOME: join(root, 'state') },
+      { CODEX_HOME: join(root, 'codex'), PLUGIN_DATA: join(root, 'codex-data'), SKILL_CHECK_GITHUB_RAW: web.baseUrl, SKILL_CHECK_GITHUB_API: web.baseUrl, SKILL_CHECK_GITHUB_TOKEN: 't', XDG_STATE_HOME: join(root, 'state') },
       root,
       'codex',
     );

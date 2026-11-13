@@ -1,6 +1,6 @@
 {
   "name": "skill-check",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Warns when an AI agent skill is used while out of date. Reference checker for the SKILL.md metadata.version / metadata.source convention.",
   "type": "module",
   "bin": {
@@ -37,9 +37,6 @@
     "hooks"
   ],
   "license": "Apache-2.0",
-  "dependencies": {
-    "yaml": "2.9.1"
-  },
   "devDependencies": {
     "@eslint/js": "10.0.1",
     "@types/node": "22.20.5",
@@ -50,6 +47,7 @@
     "eslint-plugin-sonarjs": "4.2.2",
     "typescript": "6.0.3",
     "typescript-eslint": "8.72.2",
-    "vitest": "5.1.0"
+    "vitest": "5.1.0",
+    "yaml": "2.9.1"
   }
 }

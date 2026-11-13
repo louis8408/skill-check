@@ -6,7 +6,7 @@ import { createApp } from './container.js';
 import { runHook } from './hooks.js';
 import { formatReport } from './report.js';
 
-export const VERSION = '0.3.0';
+export const VERSION = '0.4.0';
 const USER_AGENT = `skill-check/${VERSION} (+https://github.com/louis8408/skill-check)`;
 
 const HELP = `skill-check ${VERSION}: warns when an agent skill is used while out of date.
