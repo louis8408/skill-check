@@ -9,7 +9,6 @@ export function cliBuildOptions(outfile) {
     platform: 'node',
     target: 'node20',
     format: 'esm',
-    banner: { js: '#!/usr/bin/env node' },
     legalComments: 'none',
     logLevel: 'warning',
   };

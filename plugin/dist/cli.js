@@ -1,5 +1,3 @@
-#!/usr/bin/env node
-
 // src/presentation/cli.ts
 import { homedir } from "node:os";
 
@@ -1053,7 +1051,7 @@ function formatReport(reports) {
 }
 
 // src/presentation/main.ts
-var VERSION = "0.4.0";
+var VERSION = "0.4.1";
 var USER_AGENT = `skill-check/${VERSION} (+https://github.com/louis8408/skill-check)`;
 var HELP = `skill-check ${VERSION}: warns when an agent skill is used while out of date.
 

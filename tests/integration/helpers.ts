@@ -4,9 +4,13 @@ import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+// Retries cover processes still writing when a test ends, such as Codex's background plugin
+// clone (ENOTEMPTY) or a Windows file lock (EBUSY/EPERM).
+// Retries cover processes that are still writing when a test ends, such as Codex's background
+// plugin clone (ENOTEMPTY) or a Windows file lock (EBUSY/EPERM).
 export async function tempDir(): Promise<{ path: string; cleanup: () => Promise<void> }> {
   const path = await mkdtemp(join(tmpdir(), 'skill-check-'));
-  return { path, cleanup: () => rm(path, { recursive: true, force: true }) };
+  return { path, cleanup: () => rm(path, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }) };
 }
 
 export async function writeSkill(skillsDir: string, name: string, metadata: Record<string, string> = {}): Promise<string> {

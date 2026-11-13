@@ -27,7 +27,7 @@ jobs:
       - run: npm run verify
       - name: dist is up to date
         if: matrix.os == 'ubuntu-latest'
-        run: git diff --exit-code -- dist
+        run: git diff --exit-code -- plugin/dist
 
   # The plugin inside the real Codex CLI, against a scripted fake model and a fake GitHub
   # (tests/codex). No OpenAI account or network access to OpenAI is involved.
@@ -46,7 +46,8 @@ jobs:
       - run: codex --version
       - run: npm run test:codex
 
-  # Claude Code's own manifest checks, including a subset of Anthropic's plugin directory checks.
+  # Claude Code's own checks of the marketplace (repository root) and the plugin (plugin/), including
+  # a subset of Anthropic's plugin directory checks.
   plugin-validate:
     runs-on: ubuntu-latest
     steps:
@@ -57,6 +58,7 @@ jobs:
       # Pinned. Its install script fetches the native Claude Code binary, so scripts stay on here.
       - run: npm install --global @anthropic-ai/claude-code@2.1.323
       - run: claude plugin validate --strict .
+      - run: claude plugin validate --strict plugin
 
   sonarcloud:
     needs: verify

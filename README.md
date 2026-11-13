@@ -58,19 +58,28 @@ Without Node.js, Claude Code shows a `hook error` notice such as `node: command 
 
 ## Try it
 
-Install an old copy of the example skill, then use it:
+Install an old copy (1.0.0) of the [example skill](examples/hello-skill/SKILL.md), whose current version is 1.1.0, then use it:
 
 ```bash
 mkdir -p ~/.claude/skills/hello-skill
-curl -sL https://raw.githubusercontent.com/louis8408/skill-check/main/examples/hello-skill/SKILL.md \
-  | sed 's/version: 1.1.0/version: 1.0.0/' > ~/.claude/skills/hello-skill/SKILL.md
+cat > ~/.claude/skills/hello-skill/SKILL.md <<'EOF'
+---
+name: hello-skill
+description: Example skill for skill-check. Says hello. Use only when the user asks to test skill-check or says "hello skill".
+metadata:
+  version: 1.0.0
+  source: https://github.com/louis8408/skill-check/tree/main/examples/hello-skill
+---
+
+Reply with a short, friendly greeting that mentions this is the skill-check example skill.
+EOF
 ```
 
 Start Claude Code and say "hello skill". You should see the out-of-date warning.
 
 For Codex, put the copy in `~/.agents/skills/hello-skill/` instead, start Codex and type `$hello-skill`.
 
-Check everything at once from a terminal (`npx` works once published; until then use `node dist/cli.js check` from a clone). Add `--agent codex` to see Codex's skills:
+Check everything at once from a terminal (`npx` works once published; until then use `node plugin/dist/cli.js check` from a clone). Add `--agent codex` to see Codex's skills:
 
 ```
 skill-check check --cwd path/to/project
@@ -150,9 +159,9 @@ Tests are split into `tests/unit`, `tests/integration` (real file system, a loca
 npm run test:codex
 ```
 
-`dist/cli.js` is committed so the plugin works without an install step; CI fails if it is out of date. It's a readable (not minified) bundle of `src/`, with no third-party code: SKILL.md frontmatter is read by a small YAML subset parser (`src/infrastructure/frontmatter.ts`). Its tests check it against the `yaml` package; to compare against real skills too, point `SKILL_CHECK_CORPUS` at a folder of cloned skill repositories and run `npx vitest run tests/unit/infrastructure/frontmatter-parity.test.ts`.
+`plugin/` holds exactly what users install: the manifests, the hooks, the bundle `plugin/dist/cli.js`, a README for the plugin directory listing, and the license. Sources, tests and `package.json` stay outside it, so installing the plugin runs no dependency install. The bundle is committed so the plugin works without an install step; CI fails if it is out of date. It's a readable (not minified) bundle of `src/`, with no third-party code: SKILL.md frontmatter is read by a small YAML subset parser (`src/infrastructure/frontmatter.ts`). Its tests check it against the `yaml` package; to compare against real skills too, point `SKILL_CHECK_CORPUS` at a folder of cloned skill repositories and run `npx vitest run tests/unit/infrastructure/frontmatter-parity.test.ts`.
 
-`claude plugin validate --strict .` should pass before a release (CI runs it).
+`claude plugin validate --strict .` (the marketplace) and `claude plugin validate --strict plugin` should pass before a release (CI runs both).
 
 ## The bigger goal
 

@@ -22,7 +22,7 @@ interface Run {
 }
 
 const REPO = resolve('.');
-const PLUGIN_FILES = ['.codex-plugin', join('.agents', 'plugins'), 'hooks'];
+const PLUGIN_FILES = [join('.agents', 'plugins'), join('plugin', '.codex-plugin'), join('plugin', 'hooks')];
 
 describe('skill-check inside real Codex (fake model, fake GitHub)', () => {
   const model = new FakeModel();
@@ -84,7 +84,7 @@ describe('skill-check inside real Codex (fake model, fake GitHub)', () => {
     // A marketplace holding the plugin exactly as it ships, with the bundle built from this source.
     const market = join(root, 'market');
     await Promise.all(PLUGIN_FILES.map((path) => cp(join(REPO, path), join(market, path), { recursive: true })));
-    await build(cliBuildOptions(join(market, 'dist', 'cli.js')));
+    await build(cliBuildOptions(join(market, 'plugin', 'dist', 'cli.js')));
     for (const args of [['plugin', 'marketplace', 'add', market], ['plugin', 'add', 'skill-check@skill-check']]) {
       // eslint-disable-next-line no-await-in-loop -- the plugin can only be added once its marketplace is
       const result = await codex(args);
