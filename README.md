@@ -27,7 +27,7 @@ More ecosystems are added as adapters (one class each) without touching the rest
 
 ## Install
 
-Requires Node.js 20 or later on your `PATH`.
+Requires [Node.js](https://nodejs.org) 20 or later on your `PATH`. Nothing else: the plugin is one prebuilt file with no dependencies, so there's no `npm install` step.
 
 ### Claude Code
 
@@ -51,6 +51,10 @@ codex plugin add skill-check@skill-check
 ```
 
 Codex runs plugin hooks only after you review them: start Codex, open `/hooks` and trust the three skill-check hooks. Codex asks again after each plugin update, because the hooks' files changed.
+
+### If Node.js is missing
+
+Without Node.js, Claude Code shows a `hook error` notice such as `node: command not found` when a skill is used (Codex shows a similar hook failure). Install Node.js 20 or later from [nodejs.org](https://nodejs.org), or with `winget install OpenJS.NodeJS.LTS` (Windows) or `brew install node` (macOS), then start a new session.
 
 ## Try it
 
@@ -97,6 +101,25 @@ The second line is a real result: an old copy of a Vercel skill whose version wa
 - Codex: looks at `~/.agents/skills` (where `npx skills` installs), `$CODEX_HOME/skills`, `/etc/codex/skills`, and `.agents/skills` in the working directory or any parent.
 - Plugin skills and Codex's bundled skills are skipped; the agent updates those itself.
 
+### What it reads, fetches and sends
+
+skill-check has no server, account or telemetry. It only:
+
+- **Reads** the skill folders listed above, `.specify/` in your project (Spec Kit), and the `npx skills` lock file.
+- **Fetches** the upstream copy of a skill from the `https://` URL in its `metadata.source`, and for GitHub sources the file's recent commits from `api.github.com`. For Spec Kit skills it fetches the latest release of `github/spec-kit`, and for `npx skills` installs the folder hashes of the skill's GitHub repository.
+- **Writes** its cache (`status.json`) to the plugin's data folder.
+
+Requests carry a `skill-check/<version>` user agent and nothing about you or your project beyond the URLs above. A GitHub token is sent only if you set one (below), and only to `api.github.com` and `raw.githubusercontent.com`.
+
+### GitHub token (optional)
+
+Without a token, GitHub allows 60 API requests an hour, which is plenty unless you have many skills. To raise it, create a token with no scopes (skill-check only reads public files) and:
+
+- **Claude Code:** run `/plugin configure skill-check@skill-check` and paste it into **GitHub token**. It's stored in your system's secure credential store.
+- **Codex or the CLI:** set `SKILL_CHECK_GITHUB_TOKEN`.
+
+skill-check doesn't pick up a `GITHUB_TOKEN` or `GH_TOKEN` that happens to be in your environment.
+
 ### Settings (environment variables)
 
 | Variable | Default | |
@@ -105,7 +128,7 @@ The second line is a real result: an old copy of a Vercel skill whose version wa
 | `SKILL_CHECK_INLINE_TIMEOUT_MS` | `2000` | Max wait when a skill is used and nothing is cached. |
 | `CODEX_HOME` | `~/.codex` | Codex's folder (Codex sets this itself). |
 | `XDG_STATE_HOME` | | Where `npx skills` keeps its lock file (`$XDG_STATE_HOME/skills/.skill-lock.json`, else `~/.agents/.skill-lock.json`). |
-| `GITHUB_TOKEN` / `GH_TOKEN` | | Raises GitHub's rate limit (60 API requests an hour without a token). Only sent to `api.github.com` and `raw.githubusercontent.com`. |
+| `SKILL_CHECK_GITHUB_TOKEN` | | GitHub token for Codex and the CLI (see above). In Claude Code, use the plugin setting instead. |
 | `SKILL_CHECK_DEBUG` | | Set to `1` to log hook input to `debug.log` in the plugin data folder. |
 
 ## Development
@@ -127,7 +150,9 @@ Tests are split into `tests/unit`, `tests/integration` (real file system, a loca
 npm run test:codex
 ```
 
-`dist/cli.js` is committed so the plugin works without an install step; CI fails if it is out of date.
+`dist/cli.js` is committed so the plugin works without an install step; CI fails if it is out of date. It's a readable (not minified) bundle of `src/`, with no third-party code: SKILL.md frontmatter is read by a small YAML subset parser (`src/infrastructure/frontmatter.ts`). Its tests check it against the `yaml` package; to compare against real skills too, point `SKILL_CHECK_CORPUS` at a folder of cloned skill repositories and run `npx vitest run tests/unit/infrastructure/frontmatter-parity.test.ts`.
+
+`claude plugin validate --strict .` should pass before a release (CI runs it).
 
 ## The bigger goal
 

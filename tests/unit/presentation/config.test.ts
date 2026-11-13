@@ -29,7 +29,7 @@ describe('loadConfig', () => {
         SKILL_CHECK_TTL_HOURS: '2',
         SKILL_CHECK_INLINE_TIMEOUT_MS: '500',
         SKILL_CHECK_DEBUG: '1',
-        GH_TOKEN: 'tok',
+        CLAUDE_PLUGIN_OPTION_GITHUB_TOKEN: 'tok',
       },
       HOME,
     );
@@ -55,6 +55,12 @@ describe('loadConfig', () => {
     const config = loadConfig({ CODEX_HOME: '/codex', PLUGIN_DATA: '/codex-data' }, HOME, 'codex');
     expect(config.skills.personalDirs).toContain(join('/codex', 'skills'));
     expect(config.statusFile).toBe(join('/codex-data', 'status.json'));
+  });
+
+  it('takes the GitHub token only from the plugin setting or SKILL_CHECK_GITHUB_TOKEN, never from GITHUB_TOKEN', () => {
+    expect(loadConfig({ SKILL_CHECK_GITHUB_TOKEN: 'mine' }, HOME).githubToken).toBe('mine');
+    expect(loadConfig({ CLAUDE_PLUGIN_OPTION_GITHUB_TOKEN: 'setting', SKILL_CHECK_GITHUB_TOKEN: 'env' }, HOME).githubToken).toBe('setting');
+    expect(loadConfig({ GITHUB_TOKEN: 'ambient', GH_TOKEN: 'ambient' }, HOME).githubToken).toBeNull();
   });
 
   it('finds the npx skills lock file under XDG_STATE_HOME when set', () => {

@@ -84,7 +84,10 @@ export function loadConfig(env: Env, home: string, agent: Agent = 'claude'): Con
     refreshTimeoutMs: positiveNumber(env.SKILL_CHECK_REFRESH_TIMEOUT_MS, 10_000),
     githubApi: nonEmpty(env.SKILL_CHECK_GITHUB_API) ?? 'https://api.github.com',
     githubRaw: nonEmpty(env.SKILL_CHECK_GITHUB_RAW) ?? 'https://raw.githubusercontent.com',
-    githubToken: nonEmpty(env.GITHUB_TOKEN) ?? nonEmpty(env.GH_TOKEN),
+    // Only a token the user gave skill-check: the plugin's optional "github_token" setting
+    // (Claude Code passes it as CLAUDE_PLUGIN_OPTION_GITHUB_TOKEN) or SKILL_CHECK_GITHUB_TOKEN.
+    // A GITHUB_TOKEN that happens to be in the environment is never picked up.
+    githubToken: nonEmpty(env.CLAUDE_PLUGIN_OPTION_GITHUB_TOKEN) ?? nonEmpty(env.SKILL_CHECK_GITHUB_TOKEN),
     skillsLockFile: skillsLockFile(env, home),
   };
 }
