@@ -12,13 +12,22 @@ interface SkillsRoot {
   readonly scope: SkillScope;
 }
 
+/** Where an agent keeps skills. */
+export interface SkillLocations {
+  /** Personal skill folders, in precedence order. */
+  readonly personalDirs: readonly string[];
+  /** Project skill folder relative to the working directory or any parent, e.g. ".claude/skills". */
+  readonly projectDir: string;
+}
+
 /**
- * Claude Code skill locations: personal (<config>/skills) and project
- * (.claude/skills in the working directory or any parent). Personal wins on name clashes.
- * Plugin skills ("plugin:skill") are not covered: Claude Code updates plugins itself.
+ * Skills on disk: the personal folders, then the project folder in the working directory
+ * or any parent. Earlier folders win on name clashes. Folders whose names start with a dot
+ * (such as Codex's bundled skills/.system) and plugin skills ("plugin:skill") are not
+ * covered: the agent updates those itself.
  */
 export class FileSystemSkillCatalog implements SkillCatalog {
-  constructor(private readonly configDir: string) {}
+  constructor(private readonly locations: SkillLocations) {}
 
   async find(name: string, cwd: string): Promise<InstalledSkill | null> {
     if (!VALID_NAME.test(name)) return null;
@@ -38,12 +47,12 @@ export class FileSystemSkillCatalog implements SkillCatalog {
   }
 
   private roots(cwd: string): SkillsRoot[] {
-    const personal = resolve(this.configDir, 'skills');
-    const roots: SkillsRoot[] = [{ path: personal, scope: 'personal' }];
+    const personal = this.locations.personalDirs.map((path) => resolve(path));
+    const roots: SkillsRoot[] = personal.map((path) => ({ path, scope: 'personal' }));
     let dir = resolve(cwd);
     for (;;) {
-      const candidate = join(dir, '.claude', 'skills');
-      if (candidate !== personal) roots.push({ path: candidate, scope: 'project' });
+      const candidate = join(dir, this.locations.projectDir);
+      if (!personal.includes(candidate)) roots.push({ path: candidate, scope: 'project' });
       const parent = dirname(dir);
       if (parent === dir) return roots;
       dir = parent;

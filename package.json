@@ -1,6 +1,6 @@
 {
   "name": "skill-check",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "Warns when an AI agent skill is used while out of date. Reference checker for the SKILL.md metadata.version / metadata.source convention.",
   "type": "module",
   "bin": {
@@ -23,11 +23,13 @@
     "test:unit": "vitest run tests/unit",
     "test:integration": "vitest run tests/integration",
     "test:architecture": "vitest run tests/architecture",
+    "test:codex": "vitest run --config vitest.codex.config.ts",
     "coverage": "vitest run --coverage",
     "depcruise": "depcruise src --config .dependency-cruiser.cjs",
     "verify": "npm run typecheck && npm run lint && npm run build && npm run coverage"
   },
   "keywords": [
+    "codex",
     "agent-skills",
     "claude-code",
     "skills",

@@ -158,6 +158,41 @@ describe('skill-check CLI as a Claude Code hook (real files, local fake GitHub)'
     expect(result.stdout).toContain('outdated  1.0.0 -> 1.2.0');
   });
 
+  describe('as a Codex hook (--agent codex, input shapes captured from Codex CLI 0.169.0)', () => {
+    function codexHook(input: Record<string, unknown>): Promise<Run> {
+      return run(['hook', '--agent', 'codex'], JSON.stringify({ session_id: 'c1', cwd: project, transcript_path: 't', model: 'gpt', ...input }));
+    }
+
+    beforeEach(async () => {
+      // Codex plugins get both PLUGIN_DATA and CLAUDE_PLUGIN_DATA; use only the Codex name here.
+      env = { ...env, CODEX_HOME: join(root, 'codex'), PLUGIN_DATA: join(root, 'codex-data') };
+      delete env.CLAUDE_PLUGIN_DATA;
+      await writeSkill(join(project, '.agents', 'skills'), 'deploy', { version: '1.0.0', source: 'https://github.com/org/repo/tree/main/deploy' });
+      web.route('/org/repo/main/deploy/SKILL.md', upstream('1.2.0'));
+    });
+
+    it('warns when the model opens an outdated skill with a shell command', async () => {
+      const result = await codexHook({ hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_use_id: 'call_0', tool_input: { command: 'Get-Content -Raw .agents/skills/deploy/SKILL.md' } });
+      expect(result.status).toBe(0);
+      expect(JSON.parse(result.stdout)).toMatchObject({ hookSpecificOutput: { hookEventName: 'PreToolUse' } });
+      expect(result.stdout).toContain('installed 1.0.0, latest 1.2.0');
+    });
+
+    it('warns when the user mentions an outdated skill as $name', async () => {
+      const result = await codexHook({ hook_event_name: 'UserPromptSubmit', turn_id: 't1', prompt: 'please use $deploy' });
+      expect((JSON.parse(result.stdout) as { systemMessage: string }).systemMessage).toContain('"deploy" is out of date');
+      const stored = JSON.parse(await readFile(join(root, 'codex-data', 'status.json'), 'utf8')) as object;
+      expect(Object.keys(stored)).toContain('entries');
+    });
+
+    it('ignores Claude Code skill folders and Skill tool calls', async () => {
+      expect((await codexHook({ hook_event_name: 'PreToolUse', tool_name: 'Skill', tool_input: { skill: 'deploy' } })).stdout).toBe('');
+      const result = await run(['check', '--agent', 'codex', '--cwd', project]);
+      expect(result.stdout).toContain('deploy (project)');
+      expect(result.stdout).not.toContain('(personal)');
+    });
+  });
+
   it('writes raw hook input to a debug log when SKILL_CHECK_DEBUG is set', async () => {
     env.SKILL_CHECK_DEBUG = '1';
     await hook(useSkill('not-installed'));

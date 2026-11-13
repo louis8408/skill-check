@@ -3,6 +3,8 @@ import { defineConfig } from 'vitest/config';
 export default defineConfig({
   test: {
     include: ['tests/**/*.test.ts'],
+    // Needs the Codex CLI installed; run on its own with `npm run test:codex`.
+    exclude: ['tests/codex/**', '**/node_modules/**'],
     testTimeout: 20_000,
     coverage: {
       provider: 'v8',

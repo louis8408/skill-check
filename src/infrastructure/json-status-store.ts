@@ -1,9 +1,25 @@
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
+import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import type { StatusStore } from '../domain/ports.js';
 import type { StoredStatus } from '../domain/status.js';
 
 const SCHEMA = 1;
+/** Windows refuses to replace a file another process has open; such locks last milliseconds. */
+const RENAME_ATTEMPTS = 5;
+const RENAME_RETRY_MS = 20;
+
+const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+async function replaceFile(from: string, to: string, attempt = 1): Promise<void> {
+  try {
+    await rename(from, to);
+  } catch (error) {
+    if (attempt >= RENAME_ATTEMPTS) throw error;
+    await pause(RENAME_RETRY_MS * attempt);
+    await replaceFile(from, to, attempt + 1);
+  }
+}
 
 interface FileShape {
   schema: number;
@@ -27,9 +43,13 @@ export class JsonFileStatusStore implements StatusStore {
     for (const [key, value] of values) data.entries[key] = value;
     await mkdir(dirname(this.path), { recursive: true });
     // Write then rename so a concurrent reader never sees a half-written file.
-    const temp = `${this.path}.${process.pid}.${Date.now()}.tmp`;
-    await writeFile(temp, JSON.stringify(data, null, 2));
-    await rename(temp, this.path);
+    const temp = `${this.path}.${randomUUID()}.tmp`;
+    try {
+      await writeFile(temp, JSON.stringify(data, null, 2));
+      await replaceFile(temp, this.path);
+    } finally {
+      await rm(temp, { force: true });
+    }
   }
 
   private async load(): Promise<FileShape> {

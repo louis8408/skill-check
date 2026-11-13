@@ -1,4 +1,4 @@
-import { readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { JsonFileStatusStore } from '../../src/infrastructure/json-status-store.js';
@@ -44,6 +44,23 @@ describe('JsonFileStatusStore (real file system)', () => {
       }),
     );
     expect(results).toEqual([null, null, null, null]);
+  });
+
+  it('survives concurrent writers from separate hook runs (Windows refuses to replace a file in use)', async () => {
+    const path = join(root, 'status.json');
+    const writers = Array.from({ length: 8 }, (_, i) => new JsonFileStatusStore(path).put(`k${i}`, entry));
+    await Promise.all(writers);
+    // Last write wins (each writer read the file before the others wrote), but the file stays valid.
+    const stored = JSON.parse(await readFile(path, 'utf8')) as { entries: object };
+    expect(Object.keys(stored.entries).length).toBeGreaterThan(0);
+    expect((await readdir(root)).filter((name) => name.endsWith('.tmp'))).toEqual([]);
+  });
+
+  it('removes its temporary file when the write cannot be completed', async () => {
+    const path = join(root, 'status.json');
+    await mkdir(path); // a directory where the file should be: every rename fails
+    await expect(new JsonFileStatusStore(path).put('k', entry)).rejects.toThrow();
+    expect((await readdir(root)).filter((name) => name.endsWith('.tmp'))).toEqual([]);
   });
 
   it('treats a corrupt file as empty instead of failing the hook', async () => {

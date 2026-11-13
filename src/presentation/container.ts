@@ -26,7 +26,7 @@ export function createApp(config: Config, userAgent: string): App {
     new SpecKitVersionSource(http, config.githubApi),
     new SkillsLockVersionSource(http, config.githubApi, config.skillsLockFile),
   ]);
-  const catalog = new FileSystemSkillCatalog(config.configDir);
+  const catalog = new FileSystemSkillCatalog(config.skills);
   const store = new JsonFileStatusStore(config.statusFile);
   const clock = new SystemClock();
   return {
