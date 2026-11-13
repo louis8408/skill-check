@@ -4,14 +4,14 @@ import tseslint from 'typescript-eslint';
 import sonarjs from 'eslint-plugin-sonarjs';
 
 export default defineConfig(
-  { ignores: ['dist/**', 'dist-test/**', 'coverage/**', 'node_modules/**'] },
+  { ignores: ['plugin/dist/**', 'dist-test/**', 'coverage/**', 'node_modules/**'] },
   js.configs.recommended,
   ...tseslint.configs.strictTypeChecked,
   sonarjs.configs.recommended,
   {
     languageOptions: {
       parserOptions: {
-        projectService: { allowDefaultProject: ['*.js', '*.cjs', 'scripts/*.mjs'] },
+        projectService: { allowDefaultProject: ['*.js', '*.cjs', 'scripts/*.mjs', 'bin/*.mjs'] },
         tsconfigRootDir: import.meta.dirname,
       },
     },
