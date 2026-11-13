@@ -78,6 +78,28 @@ describe('run (the skill-check CLI)', () => {
     expect(output).toBe('');
   });
 
+  it('hook --agent codex: reads Codex input and Codex skill folders', async () => {
+    env.CODEX_HOME = join(root, 'codex');
+    await writeSkill(join(root, '.agents', 'skills'), 'review', { version: '1.0.0', source: 'https://github.com/o/r/tree/main/review' });
+    web.route('/o/r/main/review/SKILL.md', { body: '---\nname: review\nmetadata:\n  version: 3.0.0\n---\n' });
+    const prompt = JSON.stringify({ session_id: 's1', cwd: join(root, 'project'), hook_event_name: 'UserPromptSubmit', prompt: 'use $review' });
+    await run(['hook', '--agent', 'codex'], io(prompt));
+    expect((JSON.parse(output) as { systemMessage: string }).systemMessage).toContain('"review" is out of date');
+  });
+
+  it('check --agent codex: reports Codex skills only', async () => {
+    await writeSkill(join(root, '.agents', 'skills'), 'review');
+    await run(['check', '--agent', 'codex', '--cwd', join(root, 'project')], io());
+    expect(output).toContain('review (personal)');
+    expect(output).not.toContain('deploy');
+  });
+
+  it('prints help and does nothing for an unknown agent', async () => {
+    await run(['hook', '--agent', 'cursor'], io(hookInput('deploy')));
+    expect(output).toContain('Usage:');
+    expect(output).not.toContain('hookSpecificOutput');
+  });
+
   it('check: reports skills visible from --cwd, or from the current folder', async () => {
     await run(['check', '--cwd', join(root, 'project')], io());
     expect(output).toContain('deploy (personal)  outdated  1.0.0 -> 2.0.0');

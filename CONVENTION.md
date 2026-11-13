@@ -4,7 +4,7 @@
 
 ## The problem
 
-Once a skill is copied into `~/.claude/skills`, `.claude/skills` or any other agent's skill folder, nothing records where it came from. Agents load and run it without knowing whether a newer version exists. A stale skill doesn't fail; it quietly produces worse results.
+Once a skill is copied into `~/.claude/skills`, `~/.agents/skills` or any other agent's skill folder, nothing records where it came from. Agents load and run it without knowing whether a newer version exists. A stale skill doesn't fail; it quietly produces worse results.
 
 npm, pip and every other package manager solved this by recording where each package came from. Skills dropped that information.
 
@@ -78,7 +78,7 @@ The Agent Skills spec defines `metadata` as a free-form string map for exactly t
 
 ## Reference implementation
 
-[skill-check](https://github.com/louis8408/skill-check) implements the tool rules above as a Claude Code plugin.
+[skill-check](https://github.com/louis8408/skill-check) implements the tool rules above as a plugin for Claude Code and Codex.
 
 ## License
 

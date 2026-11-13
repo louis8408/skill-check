@@ -29,6 +29,23 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         run: git diff --exit-code -- dist
 
+  # The plugin inside the real Codex CLI, against a scripted fake model and a fake GitHub
+  # (tests/codex). No OpenAI account or network access to OpenAI is involved.
+  codex:
+    needs: verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --ignore-scripts
+      # Pinned: hook input shapes were captured from this version. Bump deliberately.
+      - run: npm install --global --ignore-scripts @openai/codex@0.169.0
+      - run: codex --version
+      - run: npm run test:codex
+
   sonarcloud:
     needs: verify
     runs-on: ubuntu-latest

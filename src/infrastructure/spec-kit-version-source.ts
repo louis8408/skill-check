@@ -44,7 +44,7 @@ export class SpecKitVersionSource implements SkillVersionSource {
   }
 
   async resolve(skill: InstalledSkill, timeoutMs: number): Promise<VersionInfo> {
-    // <project>/.claude/skills/<name> -> <project>
+    // <project>/.claude/skills/<name> (Claude Code) or <project>/.agents/skills/<name> (Codex) -> <project>
     const projectRoot = resolve(skill.directory, '..', '..', '..');
     const recorded = await this.recordedVersion(join(projectRoot, '.specify'));
     const latest = await this.latestRelease(timeoutMs);

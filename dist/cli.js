@@ -7389,11 +7389,32 @@ function nonEmpty(value) {
   return value !== void 0 && value.trim() !== "" ? value.trim() : null;
 }
 var HOUR_MS = 36e5;
-function loadConfig(env, home) {
+function parseAgent(args) {
+  const index = args.indexOf("--agent");
+  if (index === -1) return "claude";
+  const value = args[index + 1];
+  return value === "claude" || value === "codex" ? value : null;
+}
+function agentLayout(agent, env, home) {
+  if (agent === "codex") {
+    const codexHome = nonEmpty(env.CODEX_HOME) ?? join(home, ".codex");
+    return {
+      home: codexHome,
+      skills: {
+        personalDirs: [join(home, ".agents", "skills"), join(codexHome, "skills"), join("/", "etc", "codex", "skills")],
+        projectDir: join(".agents", "skills")
+      }
+    };
+  }
   const configDir = nonEmpty(env.CLAUDE_CONFIG_DIR) ?? join(home, ".claude");
-  const dataDir = nonEmpty(env.CLAUDE_PLUGIN_DATA) ?? join(configDir, "skill-check");
+  return { home: configDir, skills: { personalDirs: [join(configDir, "skills")], projectDir: join(".claude", "skills") } };
+}
+function loadConfig(env, home, agent = "claude") {
+  const layout = agentLayout(agent, env, home);
+  const dataDir = nonEmpty(env.CLAUDE_PLUGIN_DATA) ?? nonEmpty(env.PLUGIN_DATA) ?? join(layout.home, "skill-check");
   return {
-    configDir,
+    agent,
+    skills: layout.skills,
     statusFile: nonEmpty(env.SKILL_CHECK_STATUS_FILE) ?? join(dataDir, "status.json"),
     debugLog: nonEmpty(env.SKILL_CHECK_DEBUG) ? join(dataDir, "debug.log") : null,
     ttlMs: positiveNumber(env.SKILL_CHECK_TTL_HOURS, 24) * HOUR_MS,
@@ -7621,10 +7642,10 @@ function parseSkillFile(text2) {
 var SKILL_FILE = "SKILL.md";
 var VALID_NAME = /^[A-Za-z0-9][\w.-]*$/;
 var FileSystemSkillCatalog = class {
-  constructor(configDir) {
-    this.configDir = configDir;
+  constructor(locations) {
+    this.locations = locations;
   }
-  configDir;
+  locations;
   async find(name, cwd) {
     if (!VALID_NAME.test(name)) return null;
     const candidates = await Promise.all(this.roots(cwd).map((root) => this.read(root, name)));
@@ -7640,12 +7661,12 @@ var FileSystemSkillCatalog = class {
     return perRoot.flat().filter((skill) => skill !== null);
   }
   roots(cwd) {
-    const personal = resolve(this.configDir, "skills");
-    const roots = [{ path: personal, scope: "personal" }];
+    const personal = this.locations.personalDirs.map((path) => resolve(path));
+    const roots = personal.map((path) => ({ path, scope: "personal" }));
     let dir = resolve(cwd);
     for (; ; ) {
-      const candidate = join2(dir, ".claude", "skills");
-      if (candidate !== personal) roots.push({ path: candidate, scope: "project" });
+      const candidate = join2(dir, this.locations.projectDir);
+      if (!personal.includes(candidate)) roots.push({ path: candidate, scope: "project" });
       const parent = dirname(dir);
       if (parent === dir) return roots;
       dir = parent;
@@ -7698,9 +7719,22 @@ var FetchHttpClient = class {
 };
 
 // src/infrastructure/json-status-store.ts
-import { mkdir, readFile as readFile2, rename, writeFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { mkdir, readFile as readFile2, rename, rm, writeFile } from "node:fs/promises";
 import { dirname as dirname2 } from "node:path";
 var SCHEMA = 1;
+var RENAME_ATTEMPTS = 5;
+var RENAME_RETRY_MS = 20;
+var pause = (ms) => new Promise((resolve3) => setTimeout(resolve3, ms));
+async function replaceFile(from, to, attempt = 1) {
+  try {
+    await rename(from, to);
+  } catch (error) {
+    if (attempt >= RENAME_ATTEMPTS) throw error;
+    await pause(RENAME_RETRY_MS * attempt);
+    await replaceFile(from, to, attempt + 1);
+  }
+}
 var JsonFileStatusStore = class {
   constructor(path) {
     this.path = path;
@@ -7716,9 +7750,13 @@ var JsonFileStatusStore = class {
     const data = await this.load();
     for (const [key, value] of values) data.entries[key] = value;
     await mkdir(dirname2(this.path), { recursive: true });
-    const temp = `${this.path}.${process.pid}.${Date.now()}.tmp`;
-    await writeFile(temp, JSON.stringify(data, null, 2));
-    await rename(temp, this.path);
+    const temp = `${this.path}.${randomUUID()}.tmp`;
+    try {
+      await writeFile(temp, JSON.stringify(data, null, 2));
+      await replaceFile(temp, this.path);
+    } finally {
+      await rm(temp, { force: true });
+    }
   }
   async load() {
     try {
@@ -8016,7 +8054,7 @@ function createApp(config, userAgent) {
     new SpecKitVersionSource(http, config.githubApi),
     new SkillsLockVersionSource(http, config.githubApi, config.skillsLockFile)
   ]);
-  const catalog = new FileSystemSkillCatalog(config.configDir);
+  const catalog = new FileSystemSkillCatalog(config.skills);
   const store = new JsonFileStatusStore(config.statusFile);
   const clock = new SystemClock();
   return {
@@ -8030,14 +8068,16 @@ function createApp(config, userAgent) {
 
 // src/presentation/hook-input.ts
 var EVENTS = /* @__PURE__ */ new Set(["PreToolUse", "UserPromptSubmit", "SessionStart"]);
-var SLASH_COMMAND = /^\s*\/[\w:.-]+(?:\s|$)/;
-var SKILL_TOOL = "Skill";
 function isRecord2(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 function str(value) {
   return typeof value === "string" && value.trim() !== "" ? value : null;
 }
+function unique(values) {
+  return [...new Set(values)];
+}
+var SLASH_COMMAND = /^\s*\/[\w:.-]+(?:\s|$)/;
 function commandName(value) {
   const text2 = value.trim();
   const body = text2.startsWith("/") ? text2.slice(1) : text2;
@@ -8045,17 +8085,54 @@ function commandName(value) {
   const name = end === -1 ? body : body.slice(0, end);
   return name === "" ? null : name;
 }
-function skillFromToolCall(data) {
-  if (data.tool_name !== SKILL_TOOL || !isRecord2(data.tool_input)) return null;
+function claudeSkillFromToolCall(data) {
+  if (data.tool_name !== "Skill" || !isRecord2(data.tool_input)) return null;
   const input = data.tool_input;
   const raw = str(input.skill) ?? str(input.name) ?? str(input.command);
   return raw === null ? null : commandName(raw);
 }
-function skillFromPrompt(data) {
+function claudeSkillFromPrompt(data) {
   const prompt = str(data.prompt);
   return prompt !== null && SLASH_COMMAND.test(prompt) ? commandName(prompt) : null;
 }
-function readHookInput(stdin) {
+var readClaudeSkills = (event, data) => {
+  let name = null;
+  if (event === "PreToolUse") name = claudeSkillFromToolCall(data);
+  else if (event === "UserPromptSubmit") name = claudeSkillFromPrompt(data);
+  return name === null ? [] : [name];
+};
+var SKILL_NAME = /^[A-Za-z0-9][\w.-]*$/;
+var SHELL_BREAK = /[\s"'`;|&()<>]+/;
+var SKILL_MENTION = /(?<![\w$])\$([A-Za-z0-9][\w.-]*)/g;
+function skillOfPath(token) {
+  const parts = token.split(/[\\/]/);
+  if (parts.length < 2 || parts.at(-1)?.toLowerCase() !== "skill.md") return null;
+  const folder = String(parts.at(-2));
+  return SKILL_NAME.test(folder) ? folder : null;
+}
+function trimTrailingPunctuation(name) {
+  let end = name.length;
+  while (end > 0 && (name[end - 1] === "." || name[end - 1] === "-")) end--;
+  return name.slice(0, end);
+}
+function codexSkillsFromShell(data) {
+  if (data.tool_name !== "Bash" || !isRecord2(data.tool_input)) return [];
+  const command = str(data.tool_input.command);
+  if (command === null) return [];
+  return unique(command.split(SHELL_BREAK).flatMap((token) => skillOfPath(token) ?? []));
+}
+function codexSkillsFromPrompt(data) {
+  const prompt = str(data.prompt);
+  if (prompt === null) return [];
+  return unique([...prompt.matchAll(SKILL_MENTION)].map((m) => trimTrailingPunctuation(String(m[1]))));
+}
+var readCodexSkills = (event, data) => {
+  if (event === "PreToolUse") return codexSkillsFromShell(data);
+  if (event === "UserPromptSubmit") return codexSkillsFromPrompt(data);
+  return [];
+};
+var READERS = { claude: readClaudeSkills, codex: readCodexSkills };
+function readHookInput(stdin, agent) {
   let data;
   try {
     data = JSON.parse(stdin);
@@ -8067,26 +8144,28 @@ function readHookInput(stdin) {
   const sessionId = str(data.session_id);
   const cwd = str(data.cwd);
   if (event === null || !EVENTS.has(event) || sessionId === null || cwd === null) return null;
-  let skillName = null;
-  if (event === "PreToolUse") skillName = skillFromToolCall(data);
-  else if (event === "UserPromptSubmit") skillName = skillFromPrompt(data);
-  return { event, sessionId, cwd, skillName };
+  const hookEvent = event;
+  return { event: hookEvent, sessionId, cwd, skillNames: READERS[agent](hookEvent, data) };
 }
 
 // src/presentation/hooks.ts
-async function runHook(stdin, app) {
-  const input = readHookInput(stdin);
+async function runHook(stdin, app, agent) {
+  const input = readHookInput(stdin, agent);
   if (!input) return "";
   if (input.event === "SessionStart") {
     await app.refresh.execute({ cwd: input.cwd });
     return "";
   }
-  if (input.skillName === null) return "";
-  const warning = await app.checkOnUse.execute({ skillName: input.skillName, cwd: input.cwd, sessionId: input.sessionId });
-  if (warning === null) return "";
+  const warnings = [];
+  for (const skillName of input.skillNames) {
+    const warning = await app.checkOnUse.execute({ skillName, cwd: input.cwd, sessionId: input.sessionId });
+    if (warning !== null) warnings.push(warning);
+  }
+  if (warnings.length === 0) return "";
+  const message = warnings.join("\n");
   return JSON.stringify({
-    systemMessage: warning,
-    hookSpecificOutput: { hookEventName: input.event, additionalContext: warning }
+    systemMessage: message,
+    hookSpecificOutput: { hookEventName: input.event, additionalContext: message }
   });
 }
 
@@ -8111,14 +8190,16 @@ function formatReport(reports) {
 }
 
 // src/presentation/main.ts
-var VERSION = "0.2.1";
+var VERSION = "0.3.0";
 var USER_AGENT = `skill-check/${VERSION} (+https://github.com/louis8408/skill-check)`;
 var HELP = `skill-check ${VERSION}: warns when an agent skill is used while out of date.
 
 Usage:
-  skill-check hook               Run as a Claude Code hook (reads hook JSON on stdin).
-  skill-check check [--cwd DIR]  Check every skill visible from DIR and print the results.
+  skill-check hook [--agent claude|codex]               Run as a hook (reads hook JSON on stdin).
+  skill-check check [--agent claude|codex] [--cwd DIR]  Check every skill visible from DIR and print the results.
   skill-check --version
+
+--agent picks where skills live and how hook input looks: claude (Claude Code, the default) or codex (Codex CLI).
 `;
 async function debugLog(config, line) {
   if (!config.debugLog) return;
@@ -8130,7 +8211,7 @@ async function hook(config, io) {
   try {
     const stdin = await io.readStdin();
     await debugLog(config, stdin.trim());
-    const output = await runHook(stdin, createApp(config, USER_AGENT));
+    const output = await runHook(stdin, createApp(config, USER_AGENT), config.agent);
     if (output) io.write(output);
   } catch (error) {
     await debugLog(config, `error: ${describeError(error)}`).catch(() => void 0);
@@ -8143,8 +8224,13 @@ async function check(config, args, io) {
   io.write(formatReport(reports));
 }
 async function run(args, io) {
-  const config = loadConfig(io.env, io.home);
   const [command, ...rest] = args;
+  const agent = parseAgent(rest);
+  if (agent === null) {
+    io.write(HELP);
+    return;
+  }
+  const config = loadConfig(io.env, io.home, agent);
   switch (command) {
     case "hook":
       return hook(config, io);

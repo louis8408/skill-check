@@ -6,16 +6,16 @@
 
 Know when a skill you're using is out of date.
 
-Agent skills (`SKILL.md` folders for Claude Code and other agents) change often, but once a skill is copied into your skills folder nothing tracks it. Your agent keeps running the old copy, and a stale skill doesn't fail; it just quietly does worse work.
+Agent skills (`SKILL.md` folders for Claude Code, Codex and other agents) change often, but once a skill is copied into your skills folder nothing tracks it. Your agent keeps running the old copy, and a stale skill doesn't fail; it just quietly does worse work.
 
-skill-check is a Claude Code plugin that warns, at the moment a skill is used, when a newer version exists:
+skill-check is a plugin for **Claude Code** and **Codex** that warns, at the moment a skill is used, when a newer version exists:
 
 ```
 [skill-check] The skill "speckit-plan" is out of date: installed 0.12.0, latest v0.13.1.
 Run `specify self upgrade`, then `specify integration upgrade claude` in this project.
 ```
 
-Claude sees the warning too, mentions it to you, and carries on. Nothing is blocked.
+The agent sees the warning too, mentions it to you, and carries on. Nothing is blocked.
 
 ## How it knows
 
@@ -29,6 +29,8 @@ More ecosystems are added as adapters (one class each) without touching the rest
 
 Requires Node.js 20 or later on your `PATH`.
 
+### Claude Code
+
 ```
 /plugin marketplace add louis8408/skill-check
 /plugin install skill-check@skill-check
@@ -40,6 +42,15 @@ Or from a terminal:
 claude plugin marketplace add louis8408/skill-check
 claude plugin install skill-check@skill-check
 ```
+
+### Codex
+
+```
+codex plugin marketplace add louis8408/skill-check
+codex plugin add skill-check@skill-check
+```
+
+Codex runs plugin hooks only after you review them: start Codex, open `/hooks` and trust the three skill-check hooks. Codex asks again after each plugin update, because the hooks' files changed.
 
 ## Try it
 
@@ -53,10 +64,13 @@ curl -sL https://raw.githubusercontent.com/louis8408/skill-check/main/examples/h
 
 Start Claude Code and say "hello skill". You should see the out-of-date warning.
 
-Check everything at once from a terminal (`npx` works once published; until then use `node dist/cli.js check` from a clone):
+For Codex, put the copy in `~/.agents/skills/hello-skill/` instead, start Codex and type `$hello-skill`.
+
+Check everything at once from a terminal (`npx` works once published; until then use `node dist/cli.js check` from a clone). Add `--agent codex` to see Codex's skills:
 
 ```
 skill-check check --cwd path/to/project
+skill-check check --agent codex --cwd path/to/project
 ```
 
 ```
@@ -70,16 +84,18 @@ The second line is a real result: an old copy of a Vercel skill whose version wa
 
 ## How it works
 
-| Hook | What it does |
-| --- | --- |
-| `SessionStart` (async) | Checks every visible skill in the background and caches the results. |
-| `PreToolUse` on `Skill` | When Claude invokes a skill, warns if the cached status (or a quick check, max 2 s) says it's out of date. |
-| `UserPromptSubmit` | Same, for skills you type as `/skill-name`. |
+| Hook | Claude Code | Codex |
+| --- | --- | --- |
+| `SessionStart` (async) | Checks every visible skill in the background and caches the results. | Same. |
+| `PreToolUse` | On the `Skill` tool: warns if the cached status (or a quick check, max 2 s) says the skill is out of date. | On shell commands: Codex has no Skill tool, so the model opens a skill by reading its `SKILL.md`. A command that reads `.../<skill>/SKILL.md` triggers the same check. |
+| `UserPromptSubmit` | Same, for skills you type as `/skill-name`. | Same, for skills you mention as `$skill-name` (any number in one prompt). |
 
 - Each skill is warned about once per session.
 - Statuses are cached for 24 hours.
 - Any failure (offline, rate-limited, odd input) means silence, never a broken session.
-- Looks at personal skills (`~/.claude/skills`) and project skills (`.claude/skills` in the working directory or any parent). Plugin skills are skipped; Claude Code updates plugins itself.
+- Claude Code: looks at personal skills (`~/.claude/skills`) and project skills (`.claude/skills` in the working directory or any parent).
+- Codex: looks at `~/.agents/skills` (where `npx skills` installs), `$CODEX_HOME/skills`, `/etc/codex/skills`, and `.agents/skills` in the working directory or any parent.
+- Plugin skills and Codex's bundled skills are skipped; the agent updates those itself.
 
 ### Settings (environment variables)
 
@@ -87,6 +103,7 @@ The second line is a real result: an old copy of a Vercel skill whose version wa
 | --- | --- | --- |
 | `SKILL_CHECK_TTL_HOURS` | `24` | How long a check result is trusted. |
 | `SKILL_CHECK_INLINE_TIMEOUT_MS` | `2000` | Max wait when a skill is used and nothing is cached. |
+| `CODEX_HOME` | `~/.codex` | Codex's folder (Codex sets this itself). |
 | `XDG_STATE_HOME` | | Where `npx skills` keeps its lock file (`$XDG_STATE_HOME/skills/.skill-lock.json`, else `~/.agents/.skill-lock.json`). |
 | `GITHUB_TOKEN` / `GH_TOKEN` | | Raises GitHub's rate limit (60 API requests an hour without a token). Only sent to `api.github.com` and `raw.githubusercontent.com`. |
 | `SKILL_CHECK_DEBUG` | | Set to `1` to log hook input to `debug.log` in the plugin data folder. |
@@ -103,6 +120,12 @@ Coverage must stay at 100% (statements, branches, functions and lines); `npm run
 The code follows Clean Architecture: `domain` (entities and ports, no dependencies) ← `application` (use cases) ← `infrastructure` (file system, HTTP, adapters) ← `presentation` (CLI, hooks, composition root). The layer rules are enforced by tests in `tests/architecture` using dependency-cruiser.
 
 Tests are split into `tests/unit`, `tests/integration` (real file system, a local HTTP server standing in for GitHub, and the bundled CLI run as a real process) and `tests/architecture`.
+
+`tests/codex` runs the plugin inside the real Codex CLI, against a scripted fake model (a local stand-in for the OpenAI Responses API) and the fake GitHub, so no OpenAI account is needed. It needs `codex` on your `PATH`, so it runs separately (CI runs it in its own job):
+
+```
+npm run test:codex
+```
 
 `dist/cli.js` is committed so the plugin works without an install step; CI fails if it is out of date.
 
