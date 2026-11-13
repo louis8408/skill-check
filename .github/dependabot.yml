@@ -12,3 +12,6 @@ updates:
       # Type definitions track the oldest supported Node major (see engines).
       - dependency-name: "@types/node"
         update-types: ["version-update:semver-major"]
+      # typescript-eslint supports TypeScript <6.1 only; remove once it supports 7.
+      - dependency-name: "typescript"
+        versions: [">=7.0.0"]
