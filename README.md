@@ -92,10 +92,21 @@ skill-check check --agent codex --cwd path/to/project
 hello-skill (personal)           outdated  1.0.0 -> 1.1.0  Update it from https://github.com/louis8408/skill-check/tree/main/examples/hello-skill.
 react-best-practices (project)   outdated  1.0.0 (d65b69e, 2026-01-23) -> 1.0.0 (805687f, 2026-04-14)  Update it from https://github.com/vercel-labs/agent-skills/tree/main/skills/react-best-practices.
 speckit-plan (project)           current   0.13.1
-my-old-skill (personal)          unknown   npx-skills: no version information (add metadata.source, or install with npx skills)
+my-old-skill (personal)          unknown   npx-skills: no version information (add metadata.source, or install with npx skills; see https://github.com/louis8408/skill-check#a-skill-shows-as-unknown)
 ```
 
 The second line is a real result: an old copy of a Vercel skill whose version was never bumped, matched to the exact commit it came from.
+
+### A skill shows as "unknown"?
+
+skill-check can only check a skill if it knows where the original lives. If you copied a skill by hand and its author didn't add a source, add one to **your copy's** frontmatter:
+
+```yaml
+metadata:
+  source: https://github.com/anthropics/skills/tree/main/skills/pdf
+```
+
+Use the URL of the skill's **folder** on GitHub (the page you copied it from). No version is needed: skill-check compares your copy with upstream by content and commit history, so it can tell which commit your copy came from and warn when upstream has moved on. The `source` line (and a `metadata:` key added just to hold it) is ignored in that comparison, so adding it doesn't make your copy look edited. If you did edit your copy, it stays "unknown" rather than being reported as out of date.
 
 ## How it works
 
