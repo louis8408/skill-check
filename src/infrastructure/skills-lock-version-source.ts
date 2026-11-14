@@ -15,7 +15,7 @@ interface LockEntry {
   readonly updatedAt?: string;
 }
 
-const NOT_TRACKED = 'no version information (add metadata.source, or install with npx skills)';
+const NOT_TRACKED = 'no version information (add metadata.source, or install with npx skills; see https://github.com/louis8408/skill-check#a-skill-shows-as-unknown)';
 
 function isLockEntry(value: unknown): value is LockEntry {
   const entry = value as Partial<LockEntry> | null;

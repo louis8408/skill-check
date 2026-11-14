@@ -12,6 +12,8 @@ import { trimTrailingSlashes } from './text.js';
 const MAX_REVISIONS = 30;
 const PARALLEL_FETCHES = 5;
 const SOURCE_LINE = /^[ \t]+source:[^\n]*\n?/gm;
+/** A `metadata:` key left with nothing indented under it once the source line is gone. */
+const EMPTY_METADATA = /^metadata:[ \t]*\n(?![ \t])/gm;
 
 interface Revision {
   readonly sha: string;
@@ -20,10 +22,11 @@ interface Revision {
 
 /**
  * Compares the text of two SKILL.md copies, ignoring line endings, trailing whitespace and
- * the metadata.source line (people add that line to old copies when adopting the convention).
+ * the metadata.source line (people add that line to old copies when adopting the convention),
+ * including a `metadata:` key that was added only to hold it.
  */
 function sameSkill(a: string, b: string): boolean {
-  const normalize = (text: string) => text.replaceAll('\r\n', '\n').replace(SOURCE_LINE, '').trimEnd();
+  const normalize = (text: string) => text.replaceAll('\r\n', '\n').replace(SOURCE_LINE, '').replace(EMPTY_METADATA, '').trimEnd();
   return normalize(a) === normalize(b);
 }
 
@@ -68,7 +71,6 @@ export class SourceVersionSource implements SkillVersionSource {
     private readonly apiBase: string,
   ) {}
 
-  /** Only absolute http(s) URLs follow the convention; e.g. Spec Kit writes a relative template path. */
   /** Only absolute http(s) URLs follow the convention; e.g. Spec Kit writes a relative template path. */
   appliesTo(skill: InstalledSkill): boolean {
     return httpSource(skill) !== null;
