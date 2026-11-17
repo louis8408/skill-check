@@ -1,16 +1,18 @@
 import { readFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import type { SkillVersionSource } from '../domain/ports.js';
-import type { InstalledSkill } from '../domain/skill.js';
+import { METADATA_SOURCE_KEY, METADATA_VERSION_KEY, type InstalledSkill } from '../domain/skill.js';
 import type { VersionInfo } from '../domain/status.js';
 import type { HttpClient } from './http-client.js';
 import { trimTrailingSlashes } from './text.js';
 
 const SPEC_KIT_SKILL = /^speckit[-.]/;
 const LATEST_RELEASE_PATH = '/repos/github/spec-kit/releases/latest';
+/** Core skills come from Spec Kit's own templates; extensions write `<id>:<file>`, presets `preset:<id>`. */
+const CORE_SOURCE = 'templates/';
 
-interface RecordedVersion {
-  readonly version: string;
+interface Recorded {
+  readonly version: string | null;
   readonly integration: string;
 }
 
@@ -28,8 +30,10 @@ function text(value: unknown): string | null {
 }
 
 /**
- * Spec Kit (github/spec-kit) installs project skills named speckit-* and records the
- * version that generated them in .specify/integration.json (older: init-options.json).
+ * Spec Kit (github/spec-kit) installs project skills named speckit-*. Since 1.4.2 each skill
+ * records the version that generated it in metadata.version; older projects only record it in
+ * .specify/integration.json (older still: init-options.json). Only core skills follow Spec Kit
+ * releases: extension and preset skills record their own component's version.
  */
 export class SpecKitVersionSource implements SkillVersionSource {
   readonly id = 'spec-kit';
@@ -45,21 +49,27 @@ export class SpecKitVersionSource implements SkillVersionSource {
 
   async resolve(skill: InstalledSkill, timeoutMs: number): Promise<VersionInfo> {
     // <project>/.claude/skills/<name> (Claude Code) or <project>/.agents/skills/<name> (Codex) -> <project>
+    const source = skill.metadata[METADATA_SOURCE_KEY];
+    if (source !== undefined && !source.startsWith(CORE_SOURCE)) {
+      throw new Error('Spec Kit extension or preset skill; only core skills are compared');
+    }
     const projectRoot = resolve(skill.directory, '..', '..', '..');
-    const recorded = await this.recordedVersion(join(projectRoot, '.specify'));
+    const recorded = await this.recorded(join(projectRoot, '.specify'));
+    // The skill's own record wins: upgrading Spec Kit does not rewrite skills already on disk.
+    const installed = text(skill.metadata[METADATA_VERSION_KEY]) ?? recorded.version;
+    if (!installed) throw new Error('no Spec Kit version recorded in .specify/');
     const latest = await this.latestRelease(timeoutMs);
     return {
-      installed: recorded.version,
+      installed,
       latest,
       updateHint: `Run \`specify self upgrade\`, then \`specify integration upgrade ${recorded.integration}\` in this project.`,
     };
   }
 
-  private async recordedVersion(specifyDir: string): Promise<RecordedVersion> {
+  private async recorded(specifyDir: string): Promise<Recorded> {
     const integration = await readJson(join(specifyDir, 'integration.json'));
     const options = await readJson(join(specifyDir, 'init-options.json'));
     const version = text(integration?.version) ?? text(options?.speckit_version);
-    if (!version) throw new Error('no Spec Kit version recorded in .specify/');
     const key = text(integration?.integration) ?? text(options?.integration) ?? text(options?.ai) ?? 'claude';
     return { version, integration: key };
   }

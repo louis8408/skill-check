@@ -20,7 +20,7 @@ The agent sees the warning too, mentions it to you, and carries on. Nothing is b
 ## How it knows
 
 1. **`metadata.source` in SKILL.md.** The local copy is compared with the upstream one: by `metadata.version` when upstream's is higher, otherwise by content and, for GitHub sources, the file's commit history. So it notices updates even when the author never bumps the version. See [CONVENTION.md](CONVENTION.md); it works with the current Agent Skills spec, no changes needed.
-2. **Spec Kit.** `speckit-*` project skills are compared with the latest [github/spec-kit](https://github.com/github/spec-kit) release, using the version Spec Kit records in `.specify/`.
+2. **Spec Kit.** Core `speckit-*` project skills are compared with the latest [github/spec-kit](https://github.com/github/spec-kit) release, using the `metadata.version` each skill records (Spec Kit 1.4.2 and later), or for older projects the version in `.specify/`. Extension and preset skills record their own version and aren't compared yet.
 3. **`npx skills`.** Personal skills installed with [`npx skills add`](https://github.com/vercel-labs/skills) are compared with the GitHub folder hash recorded in its lock file.
 
 More ecosystems are added as adapters (one class each) without touching the rest.
