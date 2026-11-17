@@ -12,3 +12,10 @@ export function trimSlashes(value: string): string {
   while (start < value.length && value[start] === '/') start++;
   return trimTrailingSlashes(value.slice(start));
 }
+
+/** Milliseconds left until `deadline` (a Date.now() value); throws once the time budget is spent. */
+export function remaining(deadline: number): number {
+  const left = deadline - Date.now();
+  if (left <= 0) throw new Error('timed out');
+  return left;
+}

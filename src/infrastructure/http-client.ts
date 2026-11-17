@@ -5,6 +5,11 @@ export interface HttpClient {
   getText(url: string, timeoutMs: number, headers?: Readonly<Record<string, string>>): Promise<string>;
 }
 
+/** For sources that must hash files exactly as stored (binary files included). */
+export interface BinaryHttpClient {
+  getBytes(url: string, timeoutMs: number): Promise<Uint8Array>;
+}
+
 export interface GitHubAuth {
   readonly token: string;
   /** Hosts the token may be sent to. Never send it anywhere else. */
@@ -13,13 +18,21 @@ export interface GitHubAuth {
 
 export const GITHUB_HOSTS = ['api.github.com', 'raw.githubusercontent.com'] as const;
 
-export class FetchHttpClient implements HttpClient {
+export class FetchHttpClient implements HttpClient, BinaryHttpClient {
   constructor(
     private readonly userAgent: string,
     private readonly auth: GitHubAuth | null = null,
   ) {}
 
   async getText(url: string, timeoutMs: number, headers: Readonly<Record<string, string>> = {}): Promise<string> {
+    return (await this.get(url, timeoutMs, headers)).text();
+  }
+
+  async getBytes(url: string, timeoutMs: number): Promise<Uint8Array> {
+    return new Uint8Array(await (await this.get(url, timeoutMs, {})).arrayBuffer());
+  }
+
+  private async get(url: string, timeoutMs: number, headers: Readonly<Record<string, string>>): Promise<Response> {
     const requestHeaders: Record<string, string> = { 'user-agent': this.userAgent, ...headers };
     if (this.auth?.hosts.includes(new URL(url).hostname)) {
       requestHeaders.authorization = `Bearer ${this.auth.token}`;
@@ -33,6 +46,6 @@ export class FetchHttpClient implements HttpClient {
       throw new Error(`request failed: ${describeError(error)}`, { cause: error });
     }
     if (!response.ok) throw new Error(`HTTP ${response.status} for ${url}`);
-    return response.text();
+    return response;
   }
 }

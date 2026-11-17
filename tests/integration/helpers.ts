@@ -31,7 +31,7 @@ export async function writeSkillText(skillsDir: string, name: string, text: stri
 
 export interface FakeResponse {
   status?: number;
-  body: string;
+  body: string | Uint8Array;
 }
 
 /** A local HTTP server standing in for GitHub; records the requests it gets. */

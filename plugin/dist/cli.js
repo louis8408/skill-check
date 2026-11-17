@@ -563,6 +563,12 @@ var FetchHttpClient = class {
   userAgent;
   auth;
   async getText(url, timeoutMs, headers = {}) {
+    return (await this.get(url, timeoutMs, headers)).text();
+  }
+  async getBytes(url, timeoutMs) {
+    return new Uint8Array(await (await this.get(url, timeoutMs, {})).arrayBuffer());
+  }
+  async get(url, timeoutMs, headers) {
     const requestHeaders = { "user-agent": this.userAgent, ...headers };
     if (this.auth?.hosts.includes(new URL(url).hostname)) {
       requestHeaders.authorization = `Bearer ${this.auth.token}`;
@@ -575,7 +581,7 @@ var FetchHttpClient = class {
       throw new Error(`request failed: ${describeError(error)}`, { cause: error });
     }
     if (!response.ok) throw new Error(`HTTP ${response.status} for ${url}`);
-    return response.text();
+    return response;
   }
 };
 
@@ -586,7 +592,7 @@ import { dirname as dirname2 } from "node:path";
 var SCHEMA = 1;
 var RENAME_ATTEMPTS = 5;
 var RENAME_RETRY_MS = 20;
-var pause = (ms) => new Promise((resolve3) => setTimeout(resolve3, ms));
+var pause = (ms) => new Promise((resolve4) => setTimeout(resolve4, ms));
 async function replaceFile(from, to, attempt = 1) {
   try {
     await rename(from, to);
@@ -634,8 +640,67 @@ var JsonFileStatusStore = class {
   }
 };
 
+// src/infrastructure/project-skills-lock-version-source.ts
+import { readFile as readFile5 } from "node:fs/promises";
+import { join as join4, resolve as resolve2 } from "node:path";
+
+// src/infrastructure/skills-folder-hash.ts
+import { createHash } from "node:crypto";
+import { readdir as readdir2, readFile as readFile3 } from "node:fs/promises";
+import { join as join3 } from "node:path";
+var EXCLUDED_FILES = /* @__PURE__ */ new Set(["metadata.json"]);
+var EXCLUDED_FOLDERS = /* @__PURE__ */ new Set([".git", "__pycache__", "__pypackages__"]);
+var NUL = 0;
+var CR = 13;
+var LF = 10;
+function installedBySkills(path) {
+  const parts = path.split("/").filter(Boolean);
+  return parts.every((part, index) => index < parts.length - 1 ? !EXCLUDED_FOLDERS.has(part) : !EXCLUDED_FILES.has(part));
+}
+function normalized(content) {
+  if (content.includes(NUL)) return content;
+  const out = [];
+  content.forEach((byte, i) => {
+    if (!(byte === CR && content[i + 1] === LF)) out.push(byte);
+  });
+  return Uint8Array.from(out);
+}
+function skillsFolderHash(files) {
+  const entries2 = files.map((file) => ({ path: Buffer.from(file.path, "utf8"), content: normalized(file.content) })).sort((a, b) => Buffer.compare(a.path, b.path));
+  const hash = createHash("sha256");
+  for (const { path, content } of entries2) {
+    hash.update(path);
+    hash.update("\0");
+    hash.update(String(content.length));
+    hash.update("\0");
+    hash.update(content);
+  }
+  return hash.digest("hex");
+}
+var LEGACY_EXCLUDED_FOLDERS = /* @__PURE__ */ new Set([".git", "node_modules"]);
+function legacySkillsFolderHash(files) {
+  const hash = createHash("sha256");
+  files.filter((file) => file.path.split("/").slice(0, -1).every((folder) => !LEGACY_EXCLUDED_FOLDERS.has(folder))).toSorted((a, b) => a.path.localeCompare(b.path)).forEach((file) => {
+    hash.update(file.path);
+    hash.update(file.content);
+  });
+  return hash.digest("hex");
+}
+async function readSkillFolder(dir, prefix = "") {
+  const entries2 = await readdir2(join3(dir, prefix), { withFileTypes: true });
+  const nested = await Promise.all(
+    entries2.map(async (entry) => {
+      const path = `${prefix}${entry.name}`;
+      if (entry.isDirectory()) return readSkillFolder(dir, `${path}/`);
+      if (!entry.isFile()) return [];
+      return [{ path, content: new Uint8Array(await readFile3(join3(dir, path))) }];
+    })
+  );
+  return nested.flat();
+}
+
 // src/infrastructure/skills-lock-version-source.ts
-import { readFile as readFile3 } from "node:fs/promises";
+import { readFile as readFile4 } from "node:fs/promises";
 
 // src/infrastructure/text.ts
 function trimTrailingSlashes(value) {
@@ -647,6 +712,11 @@ function trimSlashes(value) {
   let start = 0;
   while (start < value.length && value[start] === "/") start++;
   return trimTrailingSlashes(value.slice(start));
+}
+function remaining(deadline) {
+  const left = deadline - Date.now();
+  if (left <= 0) throw new Error("timed out");
+  return left;
 }
 
 // src/infrastructure/skills-lock-version-source.ts
@@ -691,7 +761,7 @@ var SkillsLockVersionSource = class {
   async entry(name) {
     let skills = {};
     try {
-      const data = JSON.parse(await readFile3(this.lockPath, "utf8"));
+      const data = JSON.parse(await readFile4(this.lockPath, "utf8"));
       skills = data.skills ?? {};
     } catch {
     }
@@ -709,9 +779,112 @@ var SkillsLockVersionSource = class {
   }
 };
 
+// src/infrastructure/project-skills-lock-version-source.ts
+var LOCK_FILE = "skills-lock.json";
+var MAX_FILES = 50;
+var PARALLEL_FETCHES = 5;
+var SYMLINK_MODE = "120000";
+function isEntry(value) {
+  const entry = value;
+  return typeof entry?.source === "string" && typeof entry.sourceType === "string" && typeof entry.computedHash === "string";
+}
+function encodedPath(...parts) {
+  return parts.flatMap((part) => part.split("/")).filter(Boolean).map(encodeURIComponent).join("/");
+}
+var ProjectSkillsLockVersionSource = class {
+  constructor(http, rawBase, apiBase) {
+    this.http = http;
+    this.rawBase = rawBase;
+    this.apiBase = apiBase;
+  }
+  http;
+  rawBase;
+  apiBase;
+  id = "npx-skills";
+  appliesTo(skill) {
+    return skill.scope === "project";
+  }
+  async resolve(skill, timeoutMs) {
+    const deadline = Date.now() + timeoutMs;
+    const { version, entry } = await this.locked(join4(resolve2(skill.directory, "..", "..", ".."), LOCK_FILE), skill.name);
+    if (version !== 1 && version !== 2) throw new Error(`skills-lock.json version ${version} is not supported`);
+    if (entry.skillName) throw new Error("installed under another name (npx skills --rename), so it cannot be compared");
+    if (entry.skillPath === void 0) throw new Error(`the skills-lock.json entry has no skillPath (run \`npx skills update ${skill.name}\`)`);
+    if (entry.sourceType !== "github") throw new Error(`installed by npx skills from a ${entry.sourceType} source, which it cannot check`);
+    if (!entry.computedHash) throw new Error("no content hash in skills-lock.json (run `npx skills install`)");
+    const installed = version === 1 ? await this.trustedCopyHash(skill.directory, entry.computedHash) : entry.computedHash;
+    const ref = entry.ref ?? "HEAD";
+    const folder = folderOf(entry.skillPath);
+    const paths = await this.filesIn(entry.source, ref, folder, deadline);
+    const latest = skillsFolderHash(await this.fetchAll(entry.source, ref, folder, paths, deadline));
+    return {
+      installed: installed.slice(0, 7),
+      latest: latest.slice(0, 7),
+      updateHint: `Run \`npx skills update ${skill.name}\` in this project.`,
+      order: latest === installed ? "same" : "older"
+    };
+  }
+  async locked(lockPath, name) {
+    let data = {};
+    try {
+      data = JSON.parse(await readFile5(lockPath, "utf8"));
+    } catch {
+    }
+    const entry = data.skills?.[name];
+    if (!isEntry(entry)) throw new Error(NOT_TRACKED);
+    return { version: Number(data.version), entry };
+  }
+  /**
+   * A version 1 hash covers the installed copy with an older algorithm, so it can't be compared
+   * with upstream. As `npx skills` does when it migrates a lock, trust the copy on disk only while
+   * it still matches that hash, and use the copy's version 2 hash instead.
+   */
+  async trustedCopyHash(directory, v1Hash) {
+    let files;
+    try {
+      files = await readSkillFolder(directory);
+    } catch {
+      throw new Error(NOT_TRACKED);
+    }
+    if (legacySkillsFolderHash(files) !== v1Hash) throw new Error("changed since npx skills installed it (edited locally?)");
+    return skillsFolderHash(files.filter((file) => installedBySkills(file.path)));
+  }
+  /** The folder-relative paths of the files the installer would copy from upstream. */
+  async filesIn(repo, ref, folder, deadline) {
+    const url = `${trimTrailingSlashes(this.apiBase)}/repos/${repo}/git/trees/${encodeURIComponent(ref)}?recursive=1`;
+    const body = JSON.parse(await this.http.getText(url, remaining(deadline), { accept: "application/vnd.github+json" }));
+    if (body.truncated) throw new Error(`${repo} is too large to list`);
+    const items = body.tree ?? [];
+    if (folder !== "" && !items.some((item) => item.type === "tree" && item.path === folder)) {
+      throw new Error(`${folder} is no longer in ${repo}`);
+    }
+    const prefix = folder === "" ? "" : `${folder}/`;
+    const where = folder === "" ? repo : folder;
+    const inFolder = items.filter((item) => item.path.startsWith(prefix));
+    if (inFolder.some((item) => item.mode === SYMLINK_MODE || item.type === "commit")) {
+      throw new Error(`${where} contains a symlink or submodule, which it cannot hash`);
+    }
+    const paths = inFolder.filter((item) => item.type === "blob").map((item) => item.path.slice(prefix.length)).filter(installedBySkills);
+    if (paths.length > MAX_FILES) throw new Error(`${where} has more than ${MAX_FILES} files to compare`);
+    return paths;
+  }
+  /** A few files at a time, so a skill with many files doesn't open dozens of connections. */
+  async fetchAll(repo, ref, folder, paths, deadline) {
+    const batch = paths.slice(0, PARALLEL_FETCHES);
+    if (batch.length === 0) return [];
+    const fetched = await Promise.all(
+      batch.map(async (path) => ({
+        path,
+        content: await this.http.getBytes(`${trimTrailingSlashes(this.rawBase)}/${repo}/${ref}/${encodedPath(folder, path)}`, remaining(deadline))
+      }))
+    );
+    return [...fetched, ...await this.fetchAll(repo, ref, folder, paths.slice(PARALLEL_FETCHES), deadline)];
+  }
+};
+
 // src/infrastructure/source-version-source.ts
-import { readFile as readFile4 } from "node:fs/promises";
-import { join as join3 } from "node:path";
+import { readFile as readFile6 } from "node:fs/promises";
+import { join as join5 } from "node:path";
 
 // src/domain/skill.ts
 var METADATA_VERSION_KEY = "version";
@@ -755,7 +928,7 @@ function rawSkillUrl(source, rawBase, revision) {
 
 // src/infrastructure/source-version-source.ts
 var MAX_REVISIONS = 30;
-var PARALLEL_FETCHES = 5;
+var PARALLEL_FETCHES2 = 5;
 var SOURCE_LINE = /^[ \t]+source:[^\n]*\n?/gm;
 var EMPTY_METADATA = /^metadata:[ \t]*\n(?![ \t])/gm;
 function sameSkill(a, b) {
@@ -810,7 +983,7 @@ var SourceVersionSource = class {
       return { installed: localVersion, latest: upstreamVersion, updateHint };
     }
     const same = { installed: localVersion ?? "latest", latest: upstreamVersion ?? "latest", updateHint, order: "same" };
-    const localText = await readFile4(join3(skill.directory, "SKILL.md"), "utf8");
+    const localText = await readFile6(join5(skill.directory, "SKILL.md"), "utf8");
     if (sameSkill(localText, upstreamText)) return same;
     const github = parseGitHubSource(source);
     if (!github) throw new Error("local copy differs from upstream and the source has no history to compare");
@@ -827,7 +1000,7 @@ var SourceVersionSource = class {
   }
   /** Newest first, a few at a time, stopping at the first match (so it is sequential on purpose). */
   async findRevision(source, revisions, localText, deadline) {
-    const batch = revisions.slice(0, PARALLEL_FETCHES);
+    const batch = revisions.slice(0, PARALLEL_FETCHES2);
     if (batch.length === 0) return null;
     const fetched = await Promise.all(
       batch.map(async (revision) => ({
@@ -836,24 +1009,19 @@ var SourceVersionSource = class {
       }))
     );
     const found = fetched.find((f) => sameSkill(localText, f.text));
-    return found ? found.revision : this.findRevision(source, revisions.slice(PARALLEL_FETCHES), localText, deadline);
+    return found ? found.revision : this.findRevision(source, revisions.slice(PARALLEL_FETCHES2), localText, deadline);
   }
 };
-function remaining(deadline) {
-  const left = deadline - Date.now();
-  if (left <= 0) throw new Error("timed out");
-  return left;
-}
 
 // src/infrastructure/spec-kit-version-source.ts
-import { readFile as readFile5 } from "node:fs/promises";
-import { join as join4, resolve as resolve2 } from "node:path";
+import { readFile as readFile7 } from "node:fs/promises";
+import { join as join6, resolve as resolve3 } from "node:path";
 var SPEC_KIT_SKILL = /^speckit[-.]/;
 var LATEST_RELEASE_PATH = "/repos/github/spec-kit/releases/latest";
 var CORE_SOURCE = "templates/";
 async function readJson(path) {
   try {
-    const data = JSON.parse(await readFile5(path, "utf8"));
+    const data = JSON.parse(await readFile7(path, "utf8"));
     return typeof data === "object" && data !== null ? data : null;
   } catch {
     return null;
@@ -878,8 +1046,8 @@ var SpecKitVersionSource = class {
     if (source !== void 0 && !source.startsWith(CORE_SOURCE)) {
       throw new Error("Spec Kit extension or preset skill; only core skills are compared");
     }
-    const projectRoot = resolve2(skill.directory, "..", "..", "..");
-    const recorded = await this.recorded(join4(projectRoot, ".specify"));
+    const projectRoot = resolve3(skill.directory, "..", "..", "..");
+    const recorded = await this.recorded(join6(projectRoot, ".specify"));
     const installed = text(skill.metadata[METADATA_VERSION_KEY]) ?? recorded.version;
     if (!installed) throw new Error("no Spec Kit version recorded in .specify/");
     const latest = await this.latestRelease(timeoutMs);
@@ -890,8 +1058,8 @@ var SpecKitVersionSource = class {
     };
   }
   async recorded(specifyDir) {
-    const integration = await readJson(join4(specifyDir, "integration.json"));
-    const options = await readJson(join4(specifyDir, "init-options.json"));
+    const integration = await readJson(join6(specifyDir, "integration.json"));
+    const options = await readJson(join6(specifyDir, "init-options.json"));
     const version = text(integration?.version) ?? text(options?.speckit_version);
     const key = text(integration?.integration) ?? text(options?.integration) ?? text(options?.ai) ?? "claude";
     return { version, integration: key };
@@ -919,7 +1087,8 @@ function createApp(config, userAgent) {
   const checker = new SkillStatusChecker([
     new SourceVersionSource(http, config.githubRaw, config.githubApi),
     new SpecKitVersionSource(http, config.githubApi),
-    new SkillsLockVersionSource(http, config.githubApi, config.skillsLockFile)
+    new SkillsLockVersionSource(http, config.githubApi, config.skillsLockFile),
+    new ProjectSkillsLockVersionSource(http, config.githubRaw, config.githubApi)
   ]);
   const catalog = new FileSystemSkillCatalog(config.skills);
   const store = new JsonFileStatusStore(config.statusFile);
@@ -1057,7 +1226,7 @@ function formatReport(reports) {
 }
 
 // src/presentation/main.ts
-var VERSION = "0.5.0";
+var VERSION = "0.6.0";
 var USER_AGENT = `skill-check/${VERSION} (+https://github.com/louis8408/skill-check)`;
 var HELP = `skill-check ${VERSION}: warns when an agent skill is used while out of date.
 

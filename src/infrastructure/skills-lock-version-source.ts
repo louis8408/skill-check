@@ -15,7 +15,7 @@ interface LockEntry {
   readonly updatedAt?: string;
 }
 
-const NOT_TRACKED = 'no version information (add metadata.source, or install with npx skills; see https://github.com/louis8408/skill-check#a-skill-shows-as-unknown)';
+export const NOT_TRACKED = 'no version information (add metadata.source, or install with npx skills; see https://github.com/louis8408/skill-check#a-skill-shows-as-unknown)';
 
 function isLockEntry(value: unknown): value is LockEntry {
   const entry = value as Partial<LockEntry> | null;
@@ -23,7 +23,7 @@ function isLockEntry(value: unknown): value is LockEntry {
 }
 
 /** "skills/x/SKILL.md" -> "skills/x" (as `npx skills` itself does). */
-function folderOf(skillPath: string): string {
+export function folderOf(skillPath: string): string {
   const path = skillPath.replaceAll('\\', '/');
   const folder = path.toLowerCase().endsWith('skill.md') ? path.slice(0, -'skill.md'.length) : path;
   return folder.endsWith('/') ? folder.slice(0, -1) : folder;
