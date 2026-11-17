@@ -4,6 +4,7 @@ import { SkillStatusChecker } from '../application/skill-status-checker.js';
 import { FileSystemSkillCatalog } from '../infrastructure/fs-skill-catalog.js';
 import { FetchHttpClient, GITHUB_HOSTS } from '../infrastructure/http-client.js';
 import { JsonFileStatusStore } from '../infrastructure/json-status-store.js';
+import { ProjectSkillsLockVersionSource } from '../infrastructure/project-skills-lock-version-source.js';
 import { SkillsLockVersionSource } from '../infrastructure/skills-lock-version-source.js';
 import { SourceVersionSource } from '../infrastructure/source-version-source.js';
 import { SpecKitVersionSource } from '../infrastructure/spec-kit-version-source.js';
@@ -19,12 +20,13 @@ export interface App {
 export function createApp(config: Config, userAgent: string): App {
   const http = new FetchHttpClient(userAgent, config.githubToken ? { token: config.githubToken, hosts: GITHUB_HOSTS } : null);
   // Order matters: the first source that applies to a skill is used. A skill that declares
-  // metadata.source wins; Spec Kit project skills come next; any other personal skill is
-  // looked up in the npx skills lock file.
+  // metadata.source wins; Spec Kit project skills come next; any other skill is looked up in
+  // the npx skills lock file: the global one for personal skills, the project's for project skills.
   const checker = new SkillStatusChecker([
     new SourceVersionSource(http, config.githubRaw, config.githubApi),
     new SpecKitVersionSource(http, config.githubApi),
     new SkillsLockVersionSource(http, config.githubApi, config.skillsLockFile),
+    new ProjectSkillsLockVersionSource(http, config.githubRaw, config.githubApi),
   ]);
   const catalog = new FileSystemSkillCatalog(config.skills);
   const store = new JsonFileStatusStore(config.statusFile);

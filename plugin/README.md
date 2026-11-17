@@ -30,7 +30,7 @@ In Claude Code:
 
 1. **`metadata.source` in SKILL.md.** The local copy is compared with the upstream copy at that URL: by `metadata.version` when upstream's is higher, otherwise by content and, for GitHub sources, the file's commit history.
 2. **Spec Kit.** Core `speckit-*` project skills are compared with the latest [github/spec-kit](https://github.com/github/spec-kit) release, using the `metadata.version` each skill records (Spec Kit 1.4.2 and later), or for older projects the version in `.specify/`. Extension and preset skills record their own version and aren't compared yet.
-3. **`npx skills`.** Skills installed with `npx skills add` are compared with the folder hash recorded in its lock file.
+3. **`npx skills`.** Skills installed with [`npx skills add`](https://github.com/vercel-labs/skills) are compared with what its lock file recorded at install time. Personal (`-g`) installs use the GitHub folder hash in the global lock file. Project installs (the default) use the content hash in the project's `skills-lock.json`, computed the way `npx skills` documents it.
 
 ## A skill shows as "unknown"?
 
@@ -47,8 +47,8 @@ Use the URL of the skill's **folder** on GitHub (the page you copied it from). N
 
 skill-check has no server, account or telemetry. Its hooks run `node dist/cli.js hook` at session start (in the background), when the Skill tool is used, and when you type a `/skill`. Each hook prints at most one warning. It only:
 
-- **Reads** your personal skills (`~/.claude/skills`), the project's `.claude/skills`, `.specify/` in your project (Spec Kit), and the `npx skills` lock file.
-- **Fetches** the upstream copy of a skill from the `https://` URL in its `metadata.source`, and for GitHub sources the file's recent commits from `api.github.com`. For Spec Kit skills it fetches the latest release of `github/spec-kit`, and for `npx skills` installs the folder hashes of the skill's GitHub repository.
+- **Reads** your personal skills (`~/.claude/skills`), the project's `.claude/skills`, `.specify/` in your project (Spec Kit), and the `npx skills` lock files (the global one and the project's `skills-lock.json`).
+- **Fetches** the upstream copy of a skill from the `https://` URL in its `metadata.source`, and for GitHub sources the file's recent commits from `api.github.com`. For Spec Kit skills it fetches the latest release of `github/spec-kit`, and for `npx skills` installs the folder hashes of the skill's GitHub repository (for project installs, the skill's files from `raw.githubusercontent.com`, to hash them).
 - **Writes** its cache (`status.json`) to the plugin's data folder.
 
 Requests carry a `skill-check/<version>` user agent and nothing about you or your project beyond the URLs above.

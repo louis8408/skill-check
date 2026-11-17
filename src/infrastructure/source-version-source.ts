@@ -7,7 +7,7 @@ import { compareVersions, parseVersion } from '../domain/version.js';
 import { parseSkillFile } from './frontmatter.js';
 import type { HttpClient } from './http-client.js';
 import { parseGitHubSource, rawSkillUrl, type GitHubSource } from './source-url.js';
-import { trimTrailingSlashes } from './text.js';
+import { remaining, trimTrailingSlashes } from './text.js';
 
 const MAX_REVISIONS = 30;
 const PARALLEL_FETCHES = 5;
@@ -122,10 +122,4 @@ export class SourceVersionSource implements SkillVersionSource {
     const found = fetched.find((f) => sameSkill(localText, f.text));
     return found ? found.revision : this.findRevision(source, revisions.slice(PARALLEL_FETCHES), localText, deadline);
   }
-}
-
-function remaining(deadline: number): number {
-  const left = deadline - Date.now();
-  if (left <= 0) throw new Error('timed out');
-  return left;
 }
