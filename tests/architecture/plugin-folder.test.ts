@@ -1,5 +1,6 @@
 // The plugin folder is what users install and what Anthropic's plugin directory inspects, so it
-// holds only what the plugin runs and describes: manifests, hooks, the bundle, README, license.
+// holds only what the plugin runs and describes: manifests, hooks, the bundle, README, license,
+// security policy, and the .codexignore that Codex plugin catalogs look for.
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -33,9 +34,11 @@ describe('plugin folder', () => {
       '.claude-plugin/icon.png',
       '.claude-plugin/plugin.json',
       '.codex-plugin/plugin.json',
+      '.codexignore',
       'LICENSE',
       'NOTICE',
       'README.md',
+      'SECURITY.md',
       'dist/cli.js',
       'hooks/codex-hooks.json',
       'hooks/hooks.json',
@@ -51,8 +54,8 @@ describe('plugin folder', () => {
     expect(withShebang).toEqual([]);
   });
 
-  it('carries the same LICENSE and NOTICE as the repository', () => {
-    for (const name of ['LICENSE', 'NOTICE']) {
+  it('carries the same LICENSE, NOTICE and SECURITY.md as the repository', () => {
+    for (const name of ['LICENSE', 'NOTICE', 'SECURITY.md']) {
       expect(readFileSync(join(PLUGIN, name), 'utf8')).toBe(readFileSync(join(ROOT, name), 'utf8'));
     }
   });
