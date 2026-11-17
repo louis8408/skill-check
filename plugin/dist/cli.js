@@ -232,7 +232,7 @@ var SkillStatusChecker = class {
   async check(skill, timeoutMs) {
     const source = this.sources.find((s) => s.appliesTo(skill));
     if (!source) {
-      return { kind: "unknown", reason: "no version information (add metadata.source)" };
+      return { kind: "unknown", reason: "no version information (add metadata.source; see https://github.com/louis8408/skill-check#a-skill-shows-as-unknown)" };
     }
     try {
       return evaluateStatus(await source.resolve(skill, timeoutMs));
@@ -650,7 +650,7 @@ function trimSlashes(value) {
 }
 
 // src/infrastructure/skills-lock-version-source.ts
-var NOT_TRACKED = "no version information (add metadata.source, or install with npx skills)";
+var NOT_TRACKED = "no version information (add metadata.source, or install with npx skills; see https://github.com/louis8408/skill-check#a-skill-shows-as-unknown)";
 function isLockEntry(value) {
   const entry = value;
   return typeof entry?.source === "string" && typeof entry.sourceType === "string" && typeof entry.skillFolderHash === "string";
@@ -757,8 +757,9 @@ function rawSkillUrl(source, rawBase, revision) {
 var MAX_REVISIONS = 30;
 var PARALLEL_FETCHES = 5;
 var SOURCE_LINE = /^[ \t]+source:[^\n]*\n?/gm;
+var EMPTY_METADATA = /^metadata:[ \t]*\n(?![ \t])/gm;
 function sameSkill(a, b) {
-  const normalize = (text2) => text2.replaceAll("\r\n", "\n").replace(SOURCE_LINE, "").trimEnd();
+  const normalize = (text2) => text2.replaceAll("\r\n", "\n").replace(SOURCE_LINE, "").replace(EMPTY_METADATA, "").trimEnd();
   return normalize(a) === normalize(b);
 }
 function newerVersion(local, upstream) {
@@ -793,7 +794,6 @@ var SourceVersionSource = class {
   rawBase;
   apiBase;
   id = "source";
-  /** Only absolute http(s) URLs follow the convention; e.g. Spec Kit writes a relative template path. */
   /** Only absolute http(s) URLs follow the convention; e.g. Spec Kit writes a relative template path. */
   appliesTo(skill) {
     return httpSource(skill) !== null;
@@ -1051,7 +1051,7 @@ function formatReport(reports) {
 }
 
 // src/presentation/main.ts
-var VERSION = "0.4.1";
+var VERSION = "0.4.2";
 var USER_AGENT = `skill-check/${VERSION} (+https://github.com/louis8408/skill-check)`;
 var HELP = `skill-check ${VERSION}: warns when an agent skill is used while out of date.
 

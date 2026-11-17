@@ -89,7 +89,7 @@ describe('SkillsLockVersionSource (npx skills lock file) against a local fake Gi
 
   it('fails clearly when the skill was not installed by npx skills', async () => {
     await writeLock({});
-    await expect(source().resolve(personal('mine'), 2_000)).rejects.toThrow('no version information (add metadata.source, or install with npx skills)');
+    await expect(source().resolve(personal('mine'), 2_000)).rejects.toThrow('no version information (add metadata.source, or install with npx skills; see https://github.com/louis8408/skill-check#a-skill-shows-as-unknown)');
   });
 
   it('fails clearly when there is no lock file or the entry is not from GitHub', async () => {

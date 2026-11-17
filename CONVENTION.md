@@ -62,7 +62,7 @@ When `version` *is* bumped, tools use it as the faster, clearer signal.
 
 ## Rules for installers
 
-- If you copy a skill that has no `metadata.source`, you may add it. Tools ignore the `source` line when comparing content, so adding it doesn't make the copy look "edited".
+- If you copy a skill that has no `metadata.source`, you may add it. Tools ignore the `source` line, and a `metadata:` key added only to hold it, when comparing content, so adding it doesn't make the copy look "edited".
 - Recording the source in your own lock file works too. skill-check reads the `npx skills` lock file (`~/.agents/.skill-lock.json`) for exactly this reason.
 
 ## Rules for tools and agents

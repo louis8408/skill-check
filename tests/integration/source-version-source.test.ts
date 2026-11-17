@@ -80,6 +80,24 @@ describe('SourceVersionSource (metadata.source) against a local fake GitHub', ()
     });
   });
 
+  it('tracks an old copy whose user added a whole metadata block just for the source (README "unknown" fix)', async () => {
+    const upstream = (body: string) => `---\nname: deploy\ndescription: d\n---\n${body}\n`;
+    web.route(RAW_HEAD, { body: upstream('v2') });
+    web.route(COMMITS, { body: JSON.stringify([commit('ccccccc3333', '2026-04-14T10:00:00Z'), commit('aaaaaaa1111', '2026-01-23T10:00:00Z')]) });
+    web.route('/org/repo/ccccccc3333/skills/deploy/SKILL.md', { body: upstream('v2') });
+    web.route('/org/repo/aaaaaaa1111/skills/deploy/SKILL.md', { body: upstream('v1') });
+    const local = `---\nname: deploy\ndescription: d\nmetadata:\n  source: ${SOURCE}\n---\nv1\n`;
+    expect(await source.resolve(await installed(local, { source: SOURCE }), 2_000)).toMatchObject({ order: 'older', installed: 'aaaaaaa (2026-01-23)' });
+  });
+
+  it('keeps a metadata block that still has other keys after the source line is ignored', async () => {
+    web.route(RAW_HEAD, { body: `---\nname: deploy\n---\nbody\n` });
+    web.route(COMMITS, { body: JSON.stringify([commit('ccccccc3333', '2026-04-14T10:00:00Z')]) });
+    web.route('/org/repo/ccccccc3333/skills/deploy/SKILL.md', { body: `---\nname: deploy\n---\nbody\n` });
+    const local = `---\nname: deploy\nmetadata:\n  source: ${SOURCE}\n  owner: me\n---\nbody\n`;
+    await expect(source.resolve(await installed(local, { source: SOURCE, owner: 'me' }), 2_000)).rejects.toThrow('edited locally?');
+  });
+
   it('labels revisions by commit alone when the skill has no version', async () => {
     web.route(RAW_HEAD, { body: '---\nname: deploy\n---\nv2\n' });
     web.route(COMMITS, { body: JSON.stringify([commit('ccccccc3333', '2026-04-14T10:00:00Z'), commit('aaaaaaa1111', '2026-01-23T10:00:00Z')]) });

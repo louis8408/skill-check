@@ -15,10 +15,11 @@ Claude sees the warning too, mentions it to you, and carries on. Nothing is bloc
 
 ## Install
 
-Add it from the plugin directory, or in Claude Code:
+In Claude Code:
 
 ```
-/plugin install skill-check --marketplace louis8408/skill-check
+/plugin marketplace add louis8408/skill-check
+/plugin install skill-check@skill-check
 ```
 
 ## Requirements
@@ -30,6 +31,17 @@ Add it from the plugin directory, or in Claude Code:
 1. **`metadata.source` in SKILL.md.** The local copy is compared with the upstream copy at that URL: by `metadata.version` when upstream's is higher, otherwise by content and, for GitHub sources, the file's commit history.
 2. **Spec Kit.** `speckit-*` project skills are compared with the latest [github/spec-kit](https://github.com/github/spec-kit) release.
 3. **`npx skills`.** Skills installed with `npx skills add` are compared with the folder hash recorded in its lock file.
+
+## A skill shows as "unknown"?
+
+skill-check can only check a skill if it knows where the original lives. If you copied a skill by hand and its author didn't add a source, add one to **your copy's** frontmatter:
+
+```yaml
+metadata:
+  source: https://github.com/anthropics/skills/tree/main/skills/pdf
+```
+
+Use the URL of the skill's **folder** on GitHub (the page you copied it from). No version is needed: skill-check compares your copy with upstream by content and commit history, so it can tell which commit your copy came from and warn when upstream has moved on. The `source` line (and a `metadata:` key added just to hold it) is ignored in that comparison, so adding it doesn't make your copy look edited. If you did edit your copy, it stays "unknown" rather than being reported as out of date.
 
 ## What it runs, reads, fetches and sends
 
@@ -43,7 +55,7 @@ Requests carry a `skill-check/<version>` user agent and nothing about you or you
 
 ## GitHub token (optional)
 
-Without a token, GitHub allows 60 API requests an hour, which is plenty unless you have many skills. To raise the limit, create a GitHub token with no scopes, run `/plugin configure skill-check@skill-check` (or `skill-check@synced` if you added it from the directory), and paste it into **GitHub token**. Claude Code keeps it in your system's secure credential store, and skill-check sends it only to `api.github.com` and `raw.githubusercontent.com`.
+Without a token, GitHub allows 60 API requests an hour, which is plenty unless you have many skills. To raise the limit, create a GitHub token with no scopes, run `/plugin configure skill-check@skill-check`, and paste it into **GitHub token**. Claude Code keeps it in your system's secure credential store, and skill-check sends it only to `api.github.com` and `raw.githubusercontent.com`.
 
 ## More
 
