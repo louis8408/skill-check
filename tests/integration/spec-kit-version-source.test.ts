@@ -21,13 +21,45 @@ describe('version sources against a local HTTP server', () => {
   });
 
   describe('SpecKitVersionSource', () => {
-    async function specKitProject(files: Record<string, string>): Promise<InstalledSkill> {
+    async function specKitProject(files: Record<string, string>, metadata: Record<string, string> = {}, name = 'speckit-plan'): Promise<InstalledSkill> {
       const project = join(root, 'proj');
       await mkdir(join(project, '.specify'), { recursive: true });
-      await Promise.all(Object.entries(files).map(([name, content]) => writeFile(join(project, '.specify', name), content)));
-      const directory = await writeSkill(join(project, '.claude', 'skills'), 'speckit-plan');
-      return { name: 'speckit-plan', directory, scope: 'project', metadata: {} };
+      await Promise.all(Object.entries(files).map(([file, content]) => writeFile(join(project, '.specify', file), content)));
+      const directory = await writeSkill(join(project, '.claude', 'skills'), name);
+      return { name, directory, scope: 'project', metadata };
     }
+    const latest = (tag: string) => web.route('/repos/github/spec-kit/releases/latest', { body: JSON.stringify({ tag_name: tag }) });
+    const resolveSkill = (skill: InstalledSkill) => new SpecKitVersionSource(new FetchHttpClient('t'), web.baseUrl).resolve(skill, 2_000);
+
+    it('prefers the version a core skill records itself (Spec Kit 1.4.2+), since skills on disk are not rewritten on upgrade', async () => {
+      latest('v1.5.0');
+      const skill = await specKitProject(
+        { 'integration.json': JSON.stringify({ version: '1.5.0', integration: 'codex' }) },
+        { author: 'github-spec-kit', source: 'templates/commands/plan.md', version: '1.4.2' },
+      );
+      expect(await resolveSkill(skill)).toEqual({
+        installed: '1.4.2',
+        latest: 'v1.5.0',
+        updateHint: 'Run `specify self upgrade`, then `specify integration upgrade codex` in this project.',
+      });
+    });
+
+    it('needs no .specify record when the core skill has its own version', async () => {
+      latest('v1.5.0');
+      const skill = await specKitProject({}, { source: 'templates/commands/plan.md', version: '1.4.2' });
+      const info = await resolveSkill(skill);
+      expect(info.installed).toBe('1.4.2');
+      expect(info.updateHint).toContain('upgrade claude');
+    });
+
+    it.each([
+      ['an extension', 'speckit-jira-sync', { source: 'jira:sync.md', version: '2.0.0' }],
+      ['a preset', 'speckit-plan', { source: 'preset:acme', version: '0.3.0' }],
+    ])('does not compare %s skill with the Spec Kit release (it records the component version)', async (_kind, name, metadata) => {
+      latest('v1.5.0');
+      const skill = await specKitProject({ 'integration.json': JSON.stringify({ version: '1.5.0' }) }, metadata, name);
+      await expect(resolveSkill(skill)).rejects.toThrow('Spec Kit extension or preset skill; only core skills are compared');
+    });
 
     it('applies to project skills named speckit-*', () => {
       const source = new SpecKitVersionSource(new FetchHttpClient('t'), 'http://unused');

@@ -52,7 +52,7 @@ When `version` *is* bumped, tools use it as the faster, clearer signal.
 
 `ref` should normally be the branch you publish from (e.g. `main`), not a tag.
 
-`source` must be an absolute `https://` URL. Tools ignore any other value. For example, Spec Kit currently writes the template it generated the skill from (`source: "templates/commands/plan.md"`), which isn't resolvable outside Spec Kit.
+`source` must be an absolute `https://` URL. Tools ignore any other value. For example, Spec Kit currently writes the template it generated the skill from (`source: "templates/commands/plan.md"`), which isn't resolvable outside Spec Kit. Since 1.4.2, Spec Kit also writes `metadata.version` into every skill it generates.
 
 ## Rules for skill authors
 

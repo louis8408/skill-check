@@ -29,7 +29,7 @@ In Claude Code:
 ## How it knows a skill is out of date
 
 1. **`metadata.source` in SKILL.md.** The local copy is compared with the upstream copy at that URL: by `metadata.version` when upstream's is higher, otherwise by content and, for GitHub sources, the file's commit history.
-2. **Spec Kit.** `speckit-*` project skills are compared with the latest [github/spec-kit](https://github.com/github/spec-kit) release.
+2. **Spec Kit.** Core `speckit-*` project skills are compared with the latest [github/spec-kit](https://github.com/github/spec-kit) release, using the `metadata.version` each skill records (Spec Kit 1.4.2 and later), or for older projects the version in `.specify/`. Extension and preset skills record their own version and aren't compared yet.
 3. **`npx skills`.** Skills installed with `npx skills add` are compared with the folder hash recorded in its lock file.
 
 ## A skill shows as "unknown"?

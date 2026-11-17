@@ -850,6 +850,7 @@ import { readFile as readFile5 } from "node:fs/promises";
 import { join as join4, resolve as resolve2 } from "node:path";
 var SPEC_KIT_SKILL = /^speckit[-.]/;
 var LATEST_RELEASE_PATH = "/repos/github/spec-kit/releases/latest";
+var CORE_SOURCE = "templates/";
 async function readJson(path) {
   try {
     const data = JSON.parse(await readFile5(path, "utf8"));
@@ -873,20 +874,25 @@ var SpecKitVersionSource = class {
     return skill.scope === "project" && SPEC_KIT_SKILL.test(skill.name);
   }
   async resolve(skill, timeoutMs) {
+    const source = skill.metadata[METADATA_SOURCE_KEY];
+    if (source !== void 0 && !source.startsWith(CORE_SOURCE)) {
+      throw new Error("Spec Kit extension or preset skill; only core skills are compared");
+    }
     const projectRoot = resolve2(skill.directory, "..", "..", "..");
-    const recorded = await this.recordedVersion(join4(projectRoot, ".specify"));
+    const recorded = await this.recorded(join4(projectRoot, ".specify"));
+    const installed = text(skill.metadata[METADATA_VERSION_KEY]) ?? recorded.version;
+    if (!installed) throw new Error("no Spec Kit version recorded in .specify/");
     const latest = await this.latestRelease(timeoutMs);
     return {
-      installed: recorded.version,
+      installed,
       latest,
       updateHint: `Run \`specify self upgrade\`, then \`specify integration upgrade ${recorded.integration}\` in this project.`
     };
   }
-  async recordedVersion(specifyDir) {
+  async recorded(specifyDir) {
     const integration = await readJson(join4(specifyDir, "integration.json"));
     const options = await readJson(join4(specifyDir, "init-options.json"));
     const version = text(integration?.version) ?? text(options?.speckit_version);
-    if (!version) throw new Error("no Spec Kit version recorded in .specify/");
     const key = text(integration?.integration) ?? text(options?.integration) ?? text(options?.ai) ?? "claude";
     return { version, integration: key };
   }
@@ -1051,7 +1057,7 @@ function formatReport(reports) {
 }
 
 // src/presentation/main.ts
-var VERSION = "0.4.2";
+var VERSION = "0.5.0";
 var USER_AGENT = `skill-check/${VERSION} (+https://github.com/louis8408/skill-check)`;
 var HELP = `skill-check ${VERSION}: warns when an agent skill is used while out of date.
 
