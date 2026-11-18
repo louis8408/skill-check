@@ -665,6 +665,9 @@ function normalized(content) {
   });
   return Uint8Array.from(out);
 }
+function withLfLineEndings(files) {
+  return files.map((file) => ({ path: file.path, content: normalized(file.content) }));
+}
 function skillsFolderHash(files) {
   const entries2 = files.map((file) => ({ path: Buffer.from(file.path, "utf8"), content: normalized(file.content) })).sort((a, b) => Buffer.compare(a.path, b.path));
   const hash = createHash("sha256");
@@ -837,7 +840,8 @@ var ProjectSkillsLockVersionSource = class {
   /**
    * A version 1 hash covers the installed copy with an older algorithm, so it can't be compared
    * with upstream. As `npx skills` does when it migrates a lock, trust the copy on disk only while
-   * it still matches that hash, and use the copy's version 2 hash instead.
+   * it still matches that hash, and use the copy's version 2 hash instead. A copy whose text files
+   * Git checked out with CRLF line endings still matches (the version 2 hash ignores CRLF anyway).
    */
   async trustedCopyHash(directory, v1Hash) {
     let files;
@@ -846,7 +850,8 @@ var ProjectSkillsLockVersionSource = class {
     } catch {
       throw new Error(NOT_TRACKED);
     }
-    if (legacySkillsFolderHash(files) !== v1Hash) throw new Error("changed since npx skills installed it (edited locally?)");
+    const matches = [files, withLfLineEndings(files)].some((copy) => legacySkillsFolderHash(copy) === v1Hash);
+    if (!matches) throw new Error("changed since npx skills installed it (edited locally?)");
     return skillsFolderHash(files.filter((file) => installedBySkills(file.path)));
   }
   /** The folder-relative paths of the files the installer would copy from upstream. */
@@ -1226,7 +1231,7 @@ function formatReport(reports) {
 }
 
 // src/presentation/main.ts
-var VERSION = "0.6.0";
+var VERSION = "0.6.1";
 var USER_AGENT = `skill-check/${VERSION} (+https://github.com/louis8408/skill-check)`;
 var HELP = `skill-check ${VERSION}: warns when an agent skill is used while out of date.
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createHash } from 'node:crypto';
-import { installedBySkills, legacySkillsFolderHash, skillsFolderHash } from '../../../src/infrastructure/skills-folder-hash.js';
+import { installedBySkills, legacySkillsFolderHash, skillsFolderHash, withLfLineEndings } from '../../../src/infrastructure/skills-folder-hash.js';
 
 const text = (path: string, content: string) => ({ path, content: Buffer.from(content, 'utf8') });
 
@@ -67,5 +67,15 @@ describe('legacySkillsFolderHash (npx skills computedHash, lock version 1)', () 
   it('leaves out .git and node_modules folders but keeps metadata.json', () => {
     const files = [text('SKILL.md', 's'), text('.git/HEAD', 'h'), text('lib/node_modules/x.js', 'x'), text('metadata.json', '{}')];
     expect(legacySkillsFolderHash(files)).toBe(sha('metadata.json', '{}', 'SKILL.md', 's'));
+  });
+});
+
+describe('withLfLineEndings', () => {
+  it('turns CRLF into LF in text files and leaves binary files and paths alone', () => {
+    const files = withLfLineEndings([text('SKILL.md', 'a\r\nb\r\n'), text('x.bin', 'a\0\r\n')]);
+    expect(files.map((file) => [file.path, Buffer.from(file.content).toString('utf8')])).toEqual([
+      ['SKILL.md', 'a\nb\n'],
+      ['x.bin', 'a\0\r\n'],
+    ]);
   });
 });
