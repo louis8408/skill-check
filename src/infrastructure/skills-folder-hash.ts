@@ -31,6 +31,14 @@ function normalized(content: Uint8Array): Uint8Array {
 }
 
 /**
+ * The files with CRLF turned back into LF in text files, undoing what Git's `core.autocrlf` does on
+ * Windows when a project that commits its skills is checked out.
+ */
+export function withLfLineEndings(files: readonly SkillFile[]): SkillFile[] {
+  return files.map((file) => ({ path: file.path, content: normalized(file.content) }));
+}
+
+/**
  * The `computedHash` that `npx skills` (vercel-labs/skills) records per skill in a project's
  * skills-lock.json (lock version 2), as documented in its README ("Lock File Content Hash"):
  * files sorted by the UTF-8 bytes of their paths, each fed to SHA-256 as path NUL length NUL content.

@@ -136,6 +136,16 @@ describe('ProjectSkillsLockVersionSource (npx skills project lock, skills-lock.j
       expect(await source().resolve(skill(), 2_000)).toMatchObject({ order: 'older' });
     });
 
+    it('trusts a copy whose line endings Git turned into CRLF on checkout (core.autocrlf on Windows)', async () => {
+      const v1 = await installCopy({ 'SKILL.md': SKILL, 'logo.bin': 'a\0\r\nb' });
+      await writeFile(join(project, '.agents', 'skills', 'pdf', 'SKILL.md'), SKILL.replaceAll('\n', '\r\n'));
+      await writeLock({ pdf: entry({ computedHash: v1 }) }, 1);
+      web.route(TREE, { body: tree([blob('skills/pdf/SKILL.md'), blob('skills/pdf/logo.bin')]) });
+      web.route('/acme/skills/main/skills/pdf/SKILL.md', { body: `${SKILL}More.\n` });
+      web.route('/acme/skills/main/skills/pdf/logo.bin', { body: 'a\0\r\nb' });
+      expect(await source().resolve(skill(), 2_000)).toMatchObject({ order: 'older' });
+    });
+
     it('fails, rather than warning, when the installed copy no longer matches the v1 hash', async () => {
       const v1 = await installCopy({ 'SKILL.md': SKILL });
       await writeFile(join(project, '.agents', 'skills', 'pdf', 'SKILL.md'), `${SKILL}my edit\n`);
