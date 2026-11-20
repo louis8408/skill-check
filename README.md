@@ -1,5 +1,7 @@
 # skill-check
 
+[![HOL Guard](https://img.shields.io/endpoint?url=https%3A%2F%2Fhol.org%2Fapi%2Fregistry%2Fbadges%2Fplugin%3Fslug%3Dlouis-esterhuizen%252Fskill-check%26metric%3Drelease)](https://hol.org/registry/plugins/louis-esterhuizen%2Fskill-check?utm_source=hol_marketplace&utm_medium=plugins_badge&utm_campaign=plugins&utm_content=louis-esterhuizen%2Fskill-check&ref=plugin-author-92f9dc6d)
+
 [![ci](https://github.com/louis8408/skill-check/actions/workflows/ci.yml/badge.svg)](https://github.com/louis8408/skill-check/actions/workflows/ci.yml)
 [![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=louis8408_skill-check&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=louis8408_skill-check)
 [![Coverage](https://sonarcloud.io/api/project_badges/measure?project=louis8408_skill-check&metric=coverage)](https://sonarcloud.io/summary/new_code?id=louis8408_skill-check)
