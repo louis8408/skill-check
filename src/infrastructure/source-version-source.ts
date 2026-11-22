@@ -5,6 +5,7 @@ import { METADATA_SOURCE_KEY, METADATA_VERSION_KEY, type InstalledSkill } from '
 import type { VersionInfo } from '../domain/status.js';
 import { compareVersions, parseVersion } from '../domain/version.js';
 import { parseSkillFile } from './frontmatter.js';
+import { parseRevisions, revisionLabel, type Revision } from './github-revisions.js';
 import type { HttpClient } from './http-client.js';
 import { parseGitHubSource, rawSkillUrl, type GitHubSource } from './source-url.js';
 import { remaining, trimTrailingSlashes } from './text.js';
@@ -14,11 +15,6 @@ const PARALLEL_FETCHES = 5;
 const SOURCE_LINE = /^[ \t]+source:[^\n]*\n?/gm;
 /** A `metadata:` key left with nothing indented under it once the source line is gone. */
 const EMPTY_METADATA = /^metadata:[ \t]*\n(?![ \t])/gm;
-
-interface Revision {
-  readonly sha: string;
-  readonly date: string;
-}
 
 /**
  * Compares the text of two SKILL.md copies, ignoring line endings, trailing whitespace and
@@ -43,18 +39,7 @@ function httpSource(skill: InstalledSkill): string | null {
 }
 
 function label(version: string | undefined, revision: Revision): string {
-  const id = `${revision.sha.slice(0, 7)}, ${revision.date.slice(0, 10)}`;
-  return version ? `${version} (${id})` : `${revision.sha.slice(0, 7)} (${revision.date.slice(0, 10)})`;
-}
-
-function parseRevisions(body: string): Revision[] {
-  const data: unknown = JSON.parse(body);
-  if (!Array.isArray(data)) return [];
-  return data.flatMap((item: unknown) => {
-    const commit = item as { sha?: unknown; commit?: { committer?: { date?: unknown } } };
-    const date = commit.commit?.committer?.date;
-    return typeof commit.sha === 'string' && typeof date === 'string' ? [{ sha: commit.sha, date }] : [];
-  });
+  return version ? `${version} (${revision.sha.slice(0, 7)}, ${revision.date.slice(0, 10)})` : revisionLabel(revision);
 }
 
 /**
