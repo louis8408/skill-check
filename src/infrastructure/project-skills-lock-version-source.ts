@@ -3,6 +3,7 @@ import { join, resolve } from 'node:path';
 import type { SkillVersionSource } from '../domain/ports.js';
 import type { InstalledSkill } from '../domain/skill.js';
 import type { VersionInfo } from '../domain/status.js';
+import { parseRevisions, revisionLabel, type Revision } from './github-revisions.js';
 import type { BinaryHttpClient, HttpClient } from './http-client.js';
 import { installedBySkills, legacySkillsFolderHash, readSkillFolder, skillsFolderHash, withLfLineEndings, type SkillFile } from './skills-folder-hash.js';
 import { folderOf, NOT_TRACKED } from './skills-lock-version-source.js';
@@ -10,8 +11,11 @@ import { remaining, trimTrailingSlashes } from './text.js';
 
 const LOCK_FILE = 'skills-lock.json';
 const MAX_FILES = 50;
+/** How many recent upstream versions an untrusted version 1 copy is compared with. */
+const MAX_REVISIONS = 30;
 const PARALLEL_FETCHES = 5;
 const SYMLINK_MODE = '120000';
+const NO_MATCHING_VERSION = 'changed since npx skills installed it, and matches no recent upstream version (edited locally?)';
 
 /** The fields skill-check reads from an entry in a project's `npx skills` lock file (version 2). */
 interface ProjectLockEntry {
@@ -27,6 +31,14 @@ interface TreeItem {
   readonly path: string;
   readonly type?: string;
   readonly mode?: string;
+}
+
+/** A version 1 project's installed copy; trusted while it still matches the lock's hash. */
+interface InstalledCopy {
+  readonly trusted: boolean;
+  /** Version 2 hash of the files `npx skills` would have installed. */
+  readonly hash: string;
+  readonly paths: readonly string[];
 }
 
 interface Locked {
@@ -73,18 +85,18 @@ export class ProjectSkillsLockVersionSource implements SkillVersionSource {
     if (entry.skillPath === undefined) throw new Error(`the skills-lock.json entry has no skillPath (run \`npx skills update ${skill.name}\`)`);
     if (entry.sourceType !== 'github') throw new Error(`installed by npx skills from a ${entry.sourceType} source, which it cannot check`);
     if (!entry.computedHash) throw new Error('no content hash in skills-lock.json (run `npx skills install`)');
-    const installed = version === 1 ? await this.trustedCopyHash(skill.directory, entry.computedHash) : entry.computedHash;
+    const copy = version === 1 ? await this.installedCopy(skill.directory, entry.computedHash) : null;
+    const installed = copy?.hash ?? entry.computedHash;
 
     const ref = entry.ref ?? 'HEAD';
     const folder = folderOf(entry.skillPath);
     const paths = await this.filesIn(entry.source, ref, folder, deadline);
     const latest = skillsFolderHash(await this.fetchAll(entry.source, ref, folder, paths, deadline));
-    return {
-      installed: installed.slice(0, 7),
-      latest: latest.slice(0, 7),
-      updateHint: `Run \`npx skills update ${skill.name}\` in this project.`,
-      order: latest === installed ? 'same' : 'older',
-    };
+    const updateHint = `Run \`npx skills update ${skill.name}\` in this project.`;
+    if (copy && !copy.trusted && latest !== installed) {
+      return { ...(await this.byHistory(entry.source, entry.ref, folder, copy, deadline)), updateHint, order: 'older' };
+    }
+    return { installed: installed.slice(0, 7), latest: latest.slice(0, 7), updateHint, order: latest === installed ? 'same' : 'older' };
   }
 
   private async locked(lockPath: string, name: string): Promise<Locked> {
@@ -101,20 +113,56 @@ export class ProjectSkillsLockVersionSource implements SkillVersionSource {
 
   /**
    * A version 1 hash covers the installed copy with an older algorithm, so it can't be compared
-   * with upstream. As `npx skills` does when it migrates a lock, trust the copy on disk only while
-   * it still matches that hash, and use the copy's version 2 hash instead. A copy whose text files
+   * with upstream. As `npx skills` does when it migrates a lock, the copy on disk is trusted while
+   * it still matches that hash, and its version 2 hash is used instead. A copy whose text files
    * Git checked out with CRLF line endings still matches (the version 2 hash ignores CRLF anyway).
+   * A copy that no longer matches may be an edit, or a different upstream version than the lock
+   * records (the lock and the copy drifted apart); upstream history tells which.
    */
-  private async trustedCopyHash(directory: string, v1Hash: string): Promise<string> {
+  private async installedCopy(directory: string, v1Hash: string): Promise<InstalledCopy> {
     let files: SkillFile[];
     try {
       files = await readSkillFolder(directory);
     } catch {
       throw new Error(NOT_TRACKED);
     }
-    const matches = [files, withLfLineEndings(files)].some((copy) => legacySkillsFolderHash(copy) === v1Hash);
-    if (!matches) throw new Error('changed since npx skills installed it (edited locally?)');
-    return skillsFolderHash(files.filter((file) => installedBySkills(file.path)));
+    const trusted = [files, withLfLineEndings(files)].some((copy) => legacySkillsFolderHash(copy) === v1Hash);
+    const installed = files.filter((file) => installedBySkills(file.path));
+    return { trusted, hash: skillsFolderHash(installed), paths: installed.map((file) => file.path) };
+  }
+
+  /**
+   * The older upstream version (from the folder's recent commits) that an untrusted copy is
+   * identical to. Each version is fetched with the copy's own file list, so a version that lacks
+   * one of those files doesn't match. Newest first, stopping at the first match.
+   */
+  private async byHistory(repo: string, ref: string | undefined, folder: string, copy: InstalledCopy, deadline: number): Promise<{ installed: string; latest: string }> {
+    const branch = ref === undefined ? '' : `&sha=${encodeURIComponent(ref)}`;
+    const url = `${trimTrailingSlashes(this.apiBase)}/repos/${repo}/commits?path=${encodeURIComponent(folder)}&per_page=${MAX_REVISIONS}${branch}`;
+    const [head, ...older] = parseRevisions(await this.http.getText(url, remaining(deadline), { accept: 'application/vnd.github+json' }));
+    if (head === undefined) throw new Error(NO_MATCHING_VERSION);
+    const match = await this.firstMatch(repo, folder, copy, older, deadline);
+    if (match === null) throw new Error(NO_MATCHING_VERSION);
+    return { installed: revisionLabel(match), latest: revisionLabel(head) };
+  }
+
+  /** One version at a time (each may fetch several files), stopping at the first match. */
+  private async firstMatch(repo: string, folder: string, copy: InstalledCopy, revisions: readonly Revision[], deadline: number): Promise<Revision | null> {
+    const [revision, ...rest] = revisions;
+    if (revision === undefined) return null;
+    if ((await this.hashAt(repo, revision.sha, folder, copy.paths, deadline)) === copy.hash) return revision;
+    return this.firstMatch(repo, folder, copy, rest, deadline);
+  }
+
+  /** The folder's hash at a commit, or null when one of the files wasn't there yet. */
+  private async hashAt(repo: string, sha: string, folder: string, paths: readonly string[], deadline: number): Promise<string | null> {
+    try {
+      return skillsFolderHash(await this.fetchAll(repo, sha, folder, paths, deadline));
+    } catch (error) {
+      remaining(deadline); // out of time: report that, not "no match"
+      if (error instanceof Error && error.message.startsWith('HTTP 404')) return null;
+      throw error;
+    }
   }
 
   /** The folder-relative paths of the files the installer would copy from upstream. */

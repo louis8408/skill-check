@@ -146,12 +146,103 @@ describe('ProjectSkillsLockVersionSource (npx skills project lock, skills-lock.j
       expect(await source().resolve(skill(), 2_000)).toMatchObject({ order: 'older' });
     });
 
-    it('fails, rather than warning, when the installed copy no longer matches the v1 hash', async () => {
-      const v1 = await installCopy({ 'SKILL.md': SKILL });
-      await writeFile(join(project, '.agents', 'skills', 'pdf', 'SKILL.md'), `${SKILL}my edit\n`);
-      await writeLock({ pdf: entry({ computedHash: v1 }) }, 1);
-      await expect(source().resolve(skill(), 2_000)).rejects.toThrow('changed since npx skills installed it (edited locally?)');
-      expect(web.requests).toEqual([]);
+    describe('when the installed copy no longer matches the v1 hash', () => {
+      const COMMITS = '/repos/acme/skills/commits?path=skills%2Fpdf&per_page=30&sha=main';
+      const commit = (sha: string, date: string) => ({ sha, commit: { committer: { date } } });
+      const OLD = `${SKILL}Old wording.\n`;
+      const NEW = `${SKILL}New wording.\n`;
+
+      async function lockOtherVersion(copy: Record<string, string>): Promise<void> {
+        await installCopy(copy);
+        await writeLock({ pdf: entry({ computedHash: legacySkillsFolderHash([{ path: 'SKILL.md', content: Buffer.from('something else') }]) }) }, 1);
+      }
+
+      it('is current when the copy is already the same as upstream (the lock entry is what is stale)', async () => {
+        await lockOtherVersion({ 'SKILL.md': NEW });
+        web.route(TREE, { body: tree([blob('skills/pdf/SKILL.md')]) });
+        web.route('/acme/skills/main/skills/pdf/SKILL.md', { body: NEW });
+        const hash = hashOf({ 'SKILL.md': NEW }).slice(0, 7);
+        expect(await source().resolve(skill(), 2_000)).toMatchObject({ installed: hash, latest: hash, order: 'same' });
+        expect(web.requests.map((r) => r.url)).not.toContain(COMMITS);
+      });
+
+      it('is outdated, naming the upstream commit, when the copy is an older upstream version than the lock says', async () => {
+        await lockOtherVersion({ 'SKILL.md': OLD, 'agents/openai.yaml': 'y' });
+        web.route(TREE, { body: tree([blob('skills/pdf/SKILL.md'), blob('skills/pdf/agents/openai.yaml')]) });
+        web.route('/acme/skills/main/skills/pdf/SKILL.md', { body: NEW });
+        web.route('/acme/skills/main/skills/pdf/agents/openai.yaml', { body: 'y' });
+        web.route(COMMITS, {
+          body: JSON.stringify([commit('95249b0aaaa', '2026-10-07T10:21:22Z'), commit('7739eaebbbb', '2026-09-01T00:00:00Z'), commit('85f83d3cccc', '2026-08-20T10:34:29Z')]),
+        });
+        web.route('/acme/skills/7739eaebbbb/skills/pdf/SKILL.md', { body: `${SKILL}Middle wording.\n` });
+        web.route('/acme/skills/7739eaebbbb/skills/pdf/agents/openai.yaml', { body: 'y' });
+        web.route('/acme/skills/85f83d3cccc/skills/pdf/SKILL.md', { body: OLD.replaceAll('\n', '\r\n') });
+        web.route('/acme/skills/85f83d3cccc/skills/pdf/agents/openai.yaml', { body: 'y' });
+        expect(await source().resolve(skill(), 2_000)).toEqual({
+          installed: '85f83d3 (2026-08-20)',
+          latest: '95249b0 (2026-10-07)',
+          updateHint: 'Run `npx skills update pdf` in this project.',
+          order: 'older',
+        });
+        expect(web.requests.map((r) => r.url)).not.toContain('/acme/skills/95249b0aaaa/skills/pdf/SKILL.md');
+      });
+
+      it('skips upstream versions that lack one of the copy\'s files', async () => {
+        await lockOtherVersion({ 'SKILL.md': OLD, 'notes.md': 'n' });
+        web.route(TREE, { body: tree([blob('skills/pdf/SKILL.md'), blob('skills/pdf/notes.md')]) });
+        web.route('/acme/skills/main/skills/pdf/SKILL.md', { body: NEW });
+        web.route('/acme/skills/main/skills/pdf/notes.md', { body: 'n' });
+        web.route(COMMITS, { body: JSON.stringify([commit('head000', '2026-10-07T00:00:00Z'), commit('old0000', '2026-08-20T00:00:00Z')]) });
+        web.route('/acme/skills/old0000/skills/pdf/SKILL.md', { body: OLD });
+        await expect(source().resolve(skill(), 2_000)).rejects.toThrow(
+          'changed since npx skills installed it, and matches no recent upstream version (edited locally?)',
+        );
+      });
+
+      it('fails, rather than warning, when the copy matches no recent upstream version (edited locally)', async () => {
+        await lockOtherVersion({ 'SKILL.md': `${SKILL}my edit\n` });
+        web.route(TREE, { body: tree([blob('skills/pdf/SKILL.md')]) });
+        web.route('/acme/skills/main/skills/pdf/SKILL.md', { body: NEW });
+        web.route(COMMITS, { body: JSON.stringify([commit('head000', '2026-10-07T00:00:00Z'), commit('old0000', '2026-08-20T00:00:00Z'), { sha: 'no-date' }]) });
+        web.route('/acme/skills/old0000/skills/pdf/SKILL.md', { body: OLD });
+        await expect(source().resolve(skill(), 2_000)).rejects.toThrow(
+          'changed since npx skills installed it, and matches no recent upstream version (edited locally?)',
+        );
+      });
+
+      it('reports other errors while walking history instead of treating them as no match', async () => {
+        await lockOtherVersion({ 'SKILL.md': OLD });
+        web.route(TREE, { body: tree([blob('skills/pdf/SKILL.md')]) });
+        web.route('/acme/skills/main/skills/pdf/SKILL.md', { body: NEW });
+        web.route(COMMITS, { body: JSON.stringify([commit('head000', '2026-10-07T00:00:00Z'), commit('old0000', '2026-08-20T00:00:00Z')]) });
+        web.route('/acme/skills/old0000/skills/pdf/SKILL.md', { status: 500, body: 'boom' });
+        await expect(source().resolve(skill(), 2_000)).rejects.toThrow('HTTP 500');
+      });
+
+      it('reports "timed out", not "no match", when the time budget runs out while walking history', async () => {
+        await lockOtherVersion({ 'SKILL.md': OLD });
+        const history = JSON.stringify([commit('head000', '2026-10-07T00:00:00Z'), commit('old0000', '2026-08-20T00:00:00Z')]);
+        const slow = {
+          getText: (url: string) => Promise.resolve(url.includes('/commits?') ? history : tree([blob('skills/pdf/SKILL.md')])),
+          getBytes: async (url: string) => {
+            if (url.includes('old0000')) {
+              await new Promise((resolve) => setTimeout(resolve, 60));
+              throw new Error(`HTTP 404 for ${url}`);
+            }
+            return Buffer.from(NEW);
+          },
+        };
+        await expect(new ProjectSkillsLockVersionSource(slow, 'http://raw', 'http://api').resolve(skill(), 30)).rejects.toThrow('timed out');
+      });
+
+      it('fails the same way when upstream history is not a list, and leaves out the ref when none is locked', async () => {
+        await installCopy({ 'SKILL.md': `${SKILL}my edit\n` });
+        await writeLock({ pdf: entry({ ref: undefined, computedHash: 'stale' }) }, 1);
+        web.route('/repos/acme/skills/git/trees/HEAD?recursive=1', { body: tree([blob('skills/pdf/SKILL.md')]) });
+        web.route('/acme/skills/HEAD/skills/pdf/SKILL.md', { body: NEW });
+        web.route('/repos/acme/skills/commits?path=skills%2Fpdf&per_page=30', { body: JSON.stringify({ message: 'Not Found' }) });
+        await expect(source().resolve(skill(), 2_000)).rejects.toThrow('matches no recent upstream version (edited locally?)');
+      });
     });
 
     it('skips symlinks in the installed copy, as the v1 hash did', async () => {

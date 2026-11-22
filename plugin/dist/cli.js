@@ -644,6 +644,20 @@ var JsonFileStatusStore = class {
 import { readFile as readFile5 } from "node:fs/promises";
 import { join as join4, resolve as resolve2 } from "node:path";
 
+// src/infrastructure/github-revisions.ts
+function parseRevisions(body) {
+  const data = JSON.parse(body);
+  if (!Array.isArray(data)) return [];
+  return data.flatMap((item) => {
+    const commit = item;
+    const date = commit.commit?.committer?.date;
+    return typeof commit.sha === "string" && typeof date === "string" ? [{ sha: commit.sha, date }] : [];
+  });
+}
+function revisionLabel(revision) {
+  return `${revision.sha.slice(0, 7)} (${revision.date.slice(0, 10)})`;
+}
+
 // src/infrastructure/skills-folder-hash.ts
 import { createHash } from "node:crypto";
 import { readdir as readdir2, readFile as readFile3 } from "node:fs/promises";
@@ -785,8 +799,10 @@ var SkillsLockVersionSource = class {
 // src/infrastructure/project-skills-lock-version-source.ts
 var LOCK_FILE = "skills-lock.json";
 var MAX_FILES = 50;
+var MAX_REVISIONS = 30;
 var PARALLEL_FETCHES = 5;
 var SYMLINK_MODE = "120000";
+var NO_MATCHING_VERSION = "changed since npx skills installed it, and matches no recent upstream version (edited locally?)";
 function isEntry(value) {
   const entry = value;
   return typeof entry?.source === "string" && typeof entry.sourceType === "string" && typeof entry.computedHash === "string";
@@ -815,17 +831,17 @@ var ProjectSkillsLockVersionSource = class {
     if (entry.skillPath === void 0) throw new Error(`the skills-lock.json entry has no skillPath (run \`npx skills update ${skill.name}\`)`);
     if (entry.sourceType !== "github") throw new Error(`installed by npx skills from a ${entry.sourceType} source, which it cannot check`);
     if (!entry.computedHash) throw new Error("no content hash in skills-lock.json (run `npx skills install`)");
-    const installed = version === 1 ? await this.trustedCopyHash(skill.directory, entry.computedHash) : entry.computedHash;
+    const copy = version === 1 ? await this.installedCopy(skill.directory, entry.computedHash) : null;
+    const installed = copy?.hash ?? entry.computedHash;
     const ref = entry.ref ?? "HEAD";
     const folder = folderOf(entry.skillPath);
     const paths = await this.filesIn(entry.source, ref, folder, deadline);
     const latest = skillsFolderHash(await this.fetchAll(entry.source, ref, folder, paths, deadline));
-    return {
-      installed: installed.slice(0, 7),
-      latest: latest.slice(0, 7),
-      updateHint: `Run \`npx skills update ${skill.name}\` in this project.`,
-      order: latest === installed ? "same" : "older"
-    };
+    const updateHint = `Run \`npx skills update ${skill.name}\` in this project.`;
+    if (copy && !copy.trusted && latest !== installed) {
+      return { ...await this.byHistory(entry.source, entry.ref, folder, copy, deadline), updateHint, order: "older" };
+    }
+    return { installed: installed.slice(0, 7), latest: latest.slice(0, 7), updateHint, order: latest === installed ? "same" : "older" };
   }
   async locked(lockPath, name) {
     let data = {};
@@ -839,20 +855,53 @@ var ProjectSkillsLockVersionSource = class {
   }
   /**
    * A version 1 hash covers the installed copy with an older algorithm, so it can't be compared
-   * with upstream. As `npx skills` does when it migrates a lock, trust the copy on disk only while
-   * it still matches that hash, and use the copy's version 2 hash instead. A copy whose text files
+   * with upstream. As `npx skills` does when it migrates a lock, the copy on disk is trusted while
+   * it still matches that hash, and its version 2 hash is used instead. A copy whose text files
    * Git checked out with CRLF line endings still matches (the version 2 hash ignores CRLF anyway).
+   * A copy that no longer matches may be an edit, or a different upstream version than the lock
+   * records (the lock and the copy drifted apart); upstream history tells which.
    */
-  async trustedCopyHash(directory, v1Hash) {
+  async installedCopy(directory, v1Hash) {
     let files;
     try {
       files = await readSkillFolder(directory);
     } catch {
       throw new Error(NOT_TRACKED);
     }
-    const matches = [files, withLfLineEndings(files)].some((copy) => legacySkillsFolderHash(copy) === v1Hash);
-    if (!matches) throw new Error("changed since npx skills installed it (edited locally?)");
-    return skillsFolderHash(files.filter((file) => installedBySkills(file.path)));
+    const trusted = [files, withLfLineEndings(files)].some((copy) => legacySkillsFolderHash(copy) === v1Hash);
+    const installed = files.filter((file) => installedBySkills(file.path));
+    return { trusted, hash: skillsFolderHash(installed), paths: installed.map((file) => file.path) };
+  }
+  /**
+   * The older upstream version (from the folder's recent commits) that an untrusted copy is
+   * identical to. Each version is fetched with the copy's own file list, so a version that lacks
+   * one of those files doesn't match. Newest first, stopping at the first match.
+   */
+  async byHistory(repo, ref, folder, copy, deadline) {
+    const branch = ref === void 0 ? "" : `&sha=${encodeURIComponent(ref)}`;
+    const url = `${trimTrailingSlashes(this.apiBase)}/repos/${repo}/commits?path=${encodeURIComponent(folder)}&per_page=${MAX_REVISIONS}${branch}`;
+    const [head, ...older] = parseRevisions(await this.http.getText(url, remaining(deadline), { accept: "application/vnd.github+json" }));
+    if (head === void 0) throw new Error(NO_MATCHING_VERSION);
+    const match = await this.firstMatch(repo, folder, copy, older, deadline);
+    if (match === null) throw new Error(NO_MATCHING_VERSION);
+    return { installed: revisionLabel(match), latest: revisionLabel(head) };
+  }
+  /** One version at a time (each may fetch several files), stopping at the first match. */
+  async firstMatch(repo, folder, copy, revisions, deadline) {
+    const [revision, ...rest] = revisions;
+    if (revision === void 0) return null;
+    if (await this.hashAt(repo, revision.sha, folder, copy.paths, deadline) === copy.hash) return revision;
+    return this.firstMatch(repo, folder, copy, rest, deadline);
+  }
+  /** The folder's hash at a commit, or null when one of the files wasn't there yet. */
+  async hashAt(repo, sha, folder, paths, deadline) {
+    try {
+      return skillsFolderHash(await this.fetchAll(repo, sha, folder, paths, deadline));
+    } catch (error) {
+      remaining(deadline);
+      if (error instanceof Error && error.message.startsWith("HTTP 404")) return null;
+      throw error;
+    }
   }
   /** The folder-relative paths of the files the installer would copy from upstream. */
   async filesIn(repo, ref, folder, deadline) {
@@ -932,7 +981,7 @@ function rawSkillUrl(source, rawBase, revision) {
 }
 
 // src/infrastructure/source-version-source.ts
-var MAX_REVISIONS = 30;
+var MAX_REVISIONS2 = 30;
 var PARALLEL_FETCHES2 = 5;
 var SOURCE_LINE = /^[ \t]+source:[^\n]*\n?/gm;
 var EMPTY_METADATA = /^metadata:[ \t]*\n(?![ \t])/gm;
@@ -950,17 +999,7 @@ function httpSource(skill) {
   return source.startsWith("https://") || source.startsWith("http://") ? source : null;
 }
 function label(version, revision) {
-  const id = `${revision.sha.slice(0, 7)}, ${revision.date.slice(0, 10)}`;
-  return version ? `${version} (${id})` : `${revision.sha.slice(0, 7)} (${revision.date.slice(0, 10)})`;
-}
-function parseRevisions(body) {
-  const data = JSON.parse(body);
-  if (!Array.isArray(data)) return [];
-  return data.flatMap((item) => {
-    const commit = item;
-    const date = commit.commit?.committer?.date;
-    return typeof commit.sha === "string" && typeof date === "string" ? [{ sha: commit.sha, date }] : [];
-  });
+  return version ? `${version} (${revision.sha.slice(0, 7)}, ${revision.date.slice(0, 10)})` : revisionLabel(revision);
 }
 var SourceVersionSource = class {
   constructor(http, rawBase, apiBase) {
@@ -1000,7 +1039,7 @@ var SourceVersionSource = class {
   }
   async revisions(github, deadline) {
     const ref = github.ref ? `&sha=${encodeURIComponent(github.ref)}` : "";
-    const url = `${trimTrailingSlashes(this.apiBase)}/repos/${github.owner}/${github.repo}/commits?path=${encodeURIComponent(github.path)}&per_page=${MAX_REVISIONS}${ref}`;
+    const url = `${trimTrailingSlashes(this.apiBase)}/repos/${github.owner}/${github.repo}/commits?path=${encodeURIComponent(github.path)}&per_page=${MAX_REVISIONS2}${ref}`;
     return parseRevisions(await this.http.getText(url, remaining(deadline), { accept: "application/vnd.github+json" }));
   }
   /** Newest first, a few at a time, stopping at the first match (so it is sequential on purpose). */
@@ -1231,7 +1270,7 @@ function formatReport(reports) {
 }
 
 // src/presentation/main.ts
-var VERSION = "0.6.1";
+var VERSION = "0.6.2";
 var USER_AGENT = `skill-check/${VERSION} (+https://github.com/louis8408/skill-check)`;
 var HELP = `skill-check ${VERSION}: warns when an agent skill is used while out of date.
 
